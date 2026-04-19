@@ -1853,7 +1853,7 @@ if base_unificada is not None:
             cond_baixa_indevida = (
                 (df_tabela["Prazo Ajustado"] == "FORA DO PRAZO") &
                 (df_tabela["Dias Atraso"] == 1) &
-                (df_tabela["Ocorrencias"] == "")
+                (df_tabela["Ocorrencias"] == "SEM OCORRENCIA")
             )
 
             # aplicar flags
