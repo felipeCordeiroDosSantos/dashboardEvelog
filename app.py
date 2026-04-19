@@ -278,6 +278,8 @@ def carregar_planilha(file):
                 "DEVOLUCAO POR INSTRUCAO REMETENTE": "DEVOLUCAO",
                 "DEVOLUCAO RECUSADA": "DEVOLUCAO",
 
+                "": "SEM OCORRENCIA",
+
             }
 
             df["Ocorrencias"] = descricao.map(mapa_ocorrencias).fillna(descricao)
@@ -415,1312 +417,1148 @@ if base_unificada is not None and not base_unificada.empty:
 if base_unificada is not None:
 
     df = base_unificada.copy()
+    
+    tipo_pedido = st.segmented_control(
+        "Tipo de pedidos",
+        ["Pedidos Em aberto (Vencidos, A vencer)", "Pedidos Entregues (Performance OTD)", "Pedidos não concluídos (devoluções, sinistros, etc.)"]
+    )
 
-    # -----------------------------------
-    # BASE INICIAL
-    # -----------------------------------
+    if tipo_pedido == "Pedidos Em aberto (Vencidos, A vencer)":
 
-    df_abertos = df[
-        (~df["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])) &
-        (df["Prazo"].notna()) &
-        (df["Prazo"].astype(str).str.strip() != "")
-    ].copy()
+        # -----------------------------------
+        # BASE INICIAL
+        # -----------------------------------
 
-    if df_abertos.empty:
+        df_abertos = df[
+            (~df["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])) &
+            (df["Prazo"].notna()) &
+            (df["Prazo"].astype(str).str.strip() != "")
+        ].copy()
 
-        st.info("Não há pedidos em aberto na base.")
+        if df_abertos.empty:
 
-    else:
+            st.info("Não há pedidos em aberto na base.")
 
-        st.subheader("Pedidos em aberto")
+        else:
 
-        with st.sidebar:
+            st.subheader("Pedidos em aberto")
 
-            st.markdown("### 📦 Base de pedidos em aberto")
+            with st.sidebar:
+
+                st.markdown("### 📦 Base de pedidos em aberto")
+
+                if df_abertos is not None and not df_abertos.empty:
+                    st.metric(
+                        label="Total de pedidos",
+                        value=len(df_abertos)
+                    )
+                else:
+                    st.metric(
+                        label="Total de pedidos",
+                        value="—"
+                    )
 
             if df_abertos is not None and not df_abertos.empty:
-                st.metric(
-                    label="Total de pedidos",
-                    value=len(df_abertos)
+                excel_bytes = exportar_excel(df_abertos)
+
+                st.sidebar.download_button(
+                    label="⬇️ Exportar base (.xlsx)",
+                    data=excel_bytes,
+                    file_name="df_abertos.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:
-                st.metric(
-                    label="Total de pedidos",
-                    value="—"
+                st.sidebar.download_button(
+                    label="⬇️ Exportar base (.xlsx)",
+                    data=b"",
+                    disabled=True
                 )
 
-        if df_abertos is not None and not df_abertos.empty:
-            excel_bytes = exportar_excel(df_abertos)
+            # -----------------------------------
+            # TOPO (RADIO + MÉTRICA)
+            # -----------------------------------
 
-            st.sidebar.download_button(
-                label="⬇️ Exportar base (.xlsx)",
-                data=excel_bytes,
-                file_name="df_abertos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.sidebar.download_button(
-                label="⬇️ Exportar base (.xlsx)",
-                data=b"",
-                disabled=True
-            )
+            col1, col2 = st.columns([3,1])
 
-        # -----------------------------------
-        # TOPO (RADIO + MÉTRICA)
-        # -----------------------------------
+            with col1:
+                tipo = st.radio(
+                    "Visualização",
+                    ["Vencidos", "A vencer"],
+                    horizontal=True
+                )
 
-        col1, col2 = st.columns([3,1])
-
-        with col1:
-            tipo = st.radio(
-                "Visualização",
-                ["Vencidos", "A vencer"],
-                horizontal=True
-            )
-
-        with col2:
-            if tipo == "Vencidos":
-                total = df_abertos["Prazo"].str.contains("ATRASADO", na=False).sum()
-                st.metric("Pedidos vencidos", total)
-            else:
-                total = df_abertos["Prazo"].str.contains("FALTAM", na=False).sum()
-                st.metric("Pedidos a vencer", total)
-
-        # -----------------------------------
-        # BASE ORIGINAL
-        # -----------------------------------
-
-        if tipo == "Vencidos":
-            df_base_original = df_abertos[
-                df_abertos["Prazo"].str.contains("ATRASADO", na=False)
-            ].copy()
-        else:
-            df_base_original = df_abertos[
-                df_abertos["Prazo"].str.contains("FALTAM", na=False)
-            ].copy()
-
-        df_base_original["Dias"] = (
-            df_base_original["Prazo"]
-            .str.extract(r'(\d+)', expand=False)
-            .astype(float)
-        )
-
-        # -----------------------------------
-        # NOVO CAMPO - DIAS SEM MOVIMENTAÇÃO
-        # -----------------------------------
-
-        hoje = pd.Timestamp.now().normalize()
-
-        # 🔥 PARSE CORRETO (2 formatos)
-        def parse_data_br(col):
-            return pd.to_datetime(col, format="%d/%m/%Y %H:%M:%S", errors="coerce") \
-                .fillna(pd.to_datetime(col, format="%d/%m/%Y", errors="coerce"))
-
-        df_base_original["Dt Evento"] = (
-            df_base_original["Dt Evento"]
-            .astype(str)
-            .str.strip()
-        )
-
-        df_base_original["Dt Evento"] = parse_data_br(df_base_original["Dt Evento"])
-
-        # cálculo correto
-        df_base_original["Dias_sem_mov"] = (
-            (hoje - df_base_original["Dt Evento"].dt.normalize())
-            .dt.days
-        )
-
-        # 🔥 evita negativos (caso ainda exista dado estranho)
-        df_base_original["Dias_sem_mov"] = df_base_original["Dias_sem_mov"].clip(lower=0)
-
-        # -----------------------------------
-        # SESSION STATE (keys fixas)
-        # -----------------------------------
-
-        if "dias" not in st.session_state:
-            st.session_state.dias = []
-
-        if "status" not in st.session_state:
-            st.session_state.status = []
-
-        if "ocorrencias" not in st.session_state:
-            st.session_state.ocorrencias = []
-
-        if "dias_sem_mov" not in st.session_state:
-            st.session_state.dias_sem_mov = []
-
-        # -----------------------------------
-        # FUNÇÃO FILTRO
-        # -----------------------------------
-
-        def aplicar_filtros(df, dias, status, ocorrencias, dias_sem_mov):
-            if dias:
-                df = df[df["Dias"].isin(dias)]
-            if status:
-                df = df[df["Status"].isin(status)]
-            if ocorrencias:
-                df = df[df["Ocorrencias"].isin(ocorrencias)]
-            if dias_sem_mov:
-                df = df[df["Dias_sem_mov"].isin(dias_sem_mov)]
-            return df
-
-        # -----------------------------------
-        # FILTROS
-        # -----------------------------------
-
-        col1, col2, col3, col4 = st.columns([3,3,3,3])
-
-        # ---------------- DIAS ----------------
-        with col1:
-
-            df_temp = aplicar_filtros(
-                df_base_original,
-                [],
-                st.session_state.status,
-                st.session_state.ocorrencias,
-                st.session_state.dias_sem_mov
-            )
-
-            dias_valores = sorted(df_temp["Dias"].dropna().unique())
-
-            # -------------------------------
-            # MAPA VALOR -> LABEL
-            # -------------------------------
-            mapa_valor_label = {}
-
-            for d in dias_valores:
-                d_int = int(d)
-
+            with col2:
                 if tipo == "Vencidos":
-                    label = f"{d_int} dia{'s' if d_int > 1 else ''} vencido"
+                    total = df_abertos["Prazo"].str.contains("ATRASADO", na=False).sum()
+                    st.metric("Total de pedidos vencidos", total)
                 else:
-                    label = f"{d_int} dia{'s' if d_int > 1 else ''} para vencer"
+                    total = df_abertos["Prazo"].str.contains("FALTAM", na=False).sum()
+                    st.metric("Total de pedidos a vencer", total)
 
-                mapa_valor_label[d] = label
+            # -----------------------------------
+            # BASE ORIGINAL
+            # -----------------------------------
 
-            mapa_label_valor = {v: k for k, v in mapa_valor_label.items()}
+            if tipo == "Vencidos":
+                df_base_original = df_abertos[
+                    df_abertos["Prazo"].str.contains("ATRASADO", na=False)
+                ].copy()
+            else:
+                df_base_original = df_abertos[
+                    df_abertos["Prazo"].str.contains("FALTAM", na=False)
+                ].copy()
 
-            opcoes_labels = list(mapa_valor_label.values())
+            df_base_original["Dias"] = (
+                df_base_original["Prazo"]
+                .str.extract(r'(\d+)', expand=False)
+                .astype(float)
+            )
 
-            # -------------------------------
-            # LIMPAR INVÁLIDOS (BASE NUMÉRICA)
-            # -------------------------------
+            # -----------------------------------
+            # NOVO CAMPO - DIAS SEM MOVIMENTAÇÃO
+            # -----------------------------------
+
+            hoje = pd.Timestamp.now().normalize()
+
+            # 🔥 PARSE CORRETO (2 formatos)
+            def parse_data_br(col):
+                return pd.to_datetime(col, format="%d/%m/%Y %H:%M:%S", errors="coerce") \
+                    .fillna(pd.to_datetime(col, format="%d/%m/%Y", errors="coerce"))
+
+            df_base_original["Dt Evento"] = (
+                df_base_original["Dt Evento"]
+                .astype(str)
+                .str.strip()
+            )
+
+            df_base_original["Dt Evento"] = parse_data_br(df_base_original["Dt Evento"])
+
+            # cálculo correto
+            df_base_original["Dias_sem_mov"] = (
+                (hoje - df_base_original["Dt Evento"].dt.normalize())
+                .dt.days
+            )
+
+            # 🔥 evita negativos (caso ainda exista dado estranho)
+            df_base_original["Dias_sem_mov"] = df_base_original["Dias_sem_mov"].clip(lower=0)
+
+            # -----------------------------------
+            # SESSION STATE (keys fixas)
+            # -----------------------------------
+
             if "dias" not in st.session_state:
                 st.session_state.dias = []
 
-            st.session_state.dias = [
-                d for d in st.session_state.dias if d in dias_valores
-            ]
+            if "status" not in st.session_state:
+                st.session_state.status = []
 
-            # -------------------------------
-            # CONVERTER DEFAULT (número -> label)
-            # -------------------------------
-            default_labels = [
-                mapa_valor_label[d]
-                for d in st.session_state.dias
-                if d in mapa_valor_label
-            ]
+            if "ocorrencias" not in st.session_state:
+                st.session_state.ocorrencias = []
 
-            # -------------------------------
-            # MULTISELECT (COM KEY!)
-            # -------------------------------
-            selecionados_labels = st.multiselect(
-                "Dias",
-                opcoes_labels,
-                default=default_labels,
-                key="dias_widget"
-            )
+            if "dias_sem_mov" not in st.session_state:
+                st.session_state.dias_sem_mov = []
 
-            # -------------------------------
-            # ATUALIZA ESTADO REAL (NÚMERO)
-            # -------------------------------
-            st.session_state.dias = [
-                mapa_label_valor[label]
-                for label in selecionados_labels
-            ]
+            # -----------------------------------
+            # FUNÇÃO FILTRO
+            # -----------------------------------
 
-        # ---------------- STATUS ----------------
-        with col2:
+            def aplicar_filtros(df, dias, status, ocorrencias, dias_sem_mov):
+                if dias:
+                    df = df[df["Dias"].isin(dias)]
+                if status:
+                    df = df[df["Status"].isin(status)]
+                if ocorrencias:
+                    df = df[df["Ocorrencias"].isin(ocorrencias)]
+                if dias_sem_mov:
+                    df = df[df["Dias_sem_mov"].isin(dias_sem_mov)]
+                return df
 
-            df_temp = aplicar_filtros(
+            # -----------------------------------
+            # FILTROS
+            # -----------------------------------
+
+            col1, col2, col3, col4 = st.columns([3,3,3,3])
+
+            # ---------------- DIAS ----------------
+            with col1:
+
+                df_temp = aplicar_filtros(
+                    df_base_original,
+                    [],
+                    st.session_state.status,
+                    st.session_state.ocorrencias,
+                    st.session_state.dias_sem_mov
+                )
+
+                dias_valores = sorted(df_temp["Dias"].dropna().unique())
+
+                # -------------------------------
+                # MAPA VALOR -> LABEL
+                # -------------------------------
+                mapa_valor_label = {}
+
+                for d in dias_valores:
+                    d_int = int(d)
+
+                    if tipo == "Vencidos":
+                        label = f"{d_int} dia{'s' if d_int > 1 else ''} vencido"
+                    else:
+                        label = f"{d_int} dia{'s' if d_int > 1 else ''} para vencer"
+
+                    mapa_valor_label[d] = label
+
+                mapa_label_valor = {v: k for k, v in mapa_valor_label.items()}
+
+                opcoes_labels = list(mapa_valor_label.values())
+
+                # -------------------------------
+                # LIMPAR INVÁLIDOS (BASE NUMÉRICA)
+                # -------------------------------
+                if "dias" not in st.session_state:
+                    st.session_state.dias = []
+
+                st.session_state.dias = [
+                    d for d in st.session_state.dias if d in dias_valores
+                ]
+
+                # -------------------------------
+                # CONVERTER DEFAULT (número -> label)
+                # -------------------------------
+                default_labels = [
+                    mapa_valor_label[d]
+                    for d in st.session_state.dias
+                    if d in mapa_valor_label
+                ]
+
+                # -------------------------------
+                # MULTISELECT (COM KEY!)
+                # -------------------------------
+                selecionados_labels = st.multiselect(
+                    "Dias",
+                    opcoes_labels,
+                    default=default_labels,
+                    key="dias_widget"
+                )
+
+                # -------------------------------
+                # ATUALIZA ESTADO REAL (NÚMERO)
+                # -------------------------------
+                st.session_state.dias = [
+                    mapa_label_valor[label]
+                    for label in selecionados_labels
+                ]
+
+            # ---------------- STATUS ----------------
+            with col2:
+
+                df_temp = aplicar_filtros(
+                    df_base_original,
+                    st.session_state.dias,
+                    [],
+                    st.session_state.ocorrencias,
+                    st.session_state.dias_sem_mov
+                )
+
+                status_opcoes = sorted(
+                    df_temp["Status"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .unique()
+                )
+
+                st.session_state.status = [
+                    s for s in st.session_state.status if s in status_opcoes
+                ]
+
+                st.multiselect(
+                    "Status",
+                    status_opcoes,
+                    key="status"
+                )
+
+            # ---------------- OCORRÊNCIAS ----------------
+            with col3:
+
+                df_temp = aplicar_filtros(
+                    df_base_original,
+                    st.session_state.dias,
+                    st.session_state.status,
+                    [],
+                    st.session_state.dias_sem_mov 
+                )
+
+                ocorrencias_opcoes = sorted(
+                    df_temp["Ocorrencias"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .loc[lambda x: x != ""]
+                    .unique()
+                )
+
+                st.session_state.ocorrencias = [
+                    o for o in st.session_state.ocorrencias if o in ocorrencias_opcoes
+                ]
+
+                st.multiselect(
+                    "Ocorrências",
+                    ocorrencias_opcoes,
+                    key="ocorrencias"
+                )
+            
+            with col4:
+
+                df_temp = aplicar_filtros(
+                    df_base_original,
+                    st.session_state.dias,
+                    st.session_state.status,
+                    st.session_state.ocorrencias,
+                    []
+                )
+
+                dias_sem_mov_opcoes = sorted(
+                    df_temp["Dias_sem_mov"]
+                    .dropna()
+                    .astype(int)
+                    .unique()
+                )
+
+                st.session_state.dias_sem_mov = [
+                    d for d in st.session_state.dias_sem_mov if d in dias_sem_mov_opcoes
+                ]
+
+                st.multiselect(
+                    "Dias sem movimentação",
+                    dias_sem_mov_opcoes,
+                    key="dias_sem_mov"
+                )
+
+            # ---------------- LIMPAR ----------------
+            def limpar_filtros():
+                st.session_state.dias = []
+                st.session_state.status = []
+                st.session_state.ocorrencias = []
+                st.session_state.dias_sem_mov = []
+            st.button("Limpar filtros", on_click=limpar_filtros)
+
+            # -----------------------------------
+            # BASE FINAL
+            # -----------------------------------
+
+            df_base = aplicar_filtros(
                 df_base_original,
                 st.session_state.dias,
-                [],
+                st.session_state.status,
                 st.session_state.ocorrencias,
                 st.session_state.dias_sem_mov
             )
 
-            status_opcoes = sorted(
-                df_temp["Status"]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .unique()
+            # -----------------------------------
+            # GRÁFICOS
+            # -----------------------------------
+
+            grafico = (
+                df_base.groupby("Dias")
+                .size()
+                .reset_index(name="Quantidade")
+                .sort_values("Dias")
             )
 
-            st.session_state.status = [
-                s for s in st.session_state.status if s in status_opcoes
-            ]
+            if not grafico.empty:
 
-            st.multiselect(
-                "Status",
-                status_opcoes,
-                key="status"
-            )
+                # DIAS
+                if tipo == "Vencidos":
 
-        # ---------------- OCORRÊNCIAS ----------------
-        with col3:
+                    tituloDias = "Distribuição por dias (Pedidos vencidos)"
+                    tituloStatus = "Status (Pedidos vencidos)"
+                    tituloOcorrencias = "Ocorrencias (Pedidos vencidos)"
+                    tituloDiasSemMov = "Dias sem movimentação (Pedidos vencidos)"
+                    tituloPedidosFiltrados = "Pedidos filtrados (Pedidos vencidos)"
 
-            df_temp = aplicar_filtros(
-                df_base_original,
-                st.session_state.dias,
-                st.session_state.status,
-                [],
-                st.session_state.dias_sem_mov 
-            )
+                    eixo_x_titulo = "Dias vencidos"
+                else:
+                    tituloDias = "Distribuição por dias (Pedidos a vencer)"
+                    tituloStatus = "Status (Pedidos a vencer)"
+                    tituloOcorrencias = "Ocorrencias (Pedidos a vencer)"
+                    tituloDiasSemMov = "Dias sem movimentação (Pedidos a vencer)"
+                    tituloPedidosFiltrados = "Pedidos filtrados (Pedidos a vencer)"
 
-            ocorrencias_opcoes = sorted(
-                df_temp["Ocorrencias"]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .loc[lambda x: x != ""]
-                .unique()
-            )
+                    eixo_x_titulo = "Dias a vencer"
 
-            st.session_state.ocorrencias = [
-                o for o in st.session_state.ocorrencias if o in ocorrencias_opcoes
-            ]
+                st.subheader(tituloDias)
 
-            st.multiselect(
-                "Ocorrências",
-                ocorrencias_opcoes,
-                key="ocorrencias"
-            )
-        
-        with col4:
-
-            df_temp = aplicar_filtros(
-                df_base_original,
-                st.session_state.dias,
-                st.session_state.status,
-                st.session_state.ocorrencias,
-                []
-            )
-
-            dias_sem_mov_opcoes = sorted(
-                df_temp["Dias_sem_mov"]
-                .dropna()
-                .astype(int)
-                .unique()
-            )
-
-            st.session_state.dias_sem_mov = [
-                d for d in st.session_state.dias_sem_mov if d in dias_sem_mov_opcoes
-            ]
-
-            st.multiselect(
-                "Dias sem movimentação",
-                dias_sem_mov_opcoes,
-                key="dias_sem_mov"
-            )
-
-        # ---------------- LIMPAR ----------------
-        def limpar_filtros():
-            st.session_state.dias = []
-            st.session_state.status = []
-            st.session_state.ocorrencias = []
-            st.session_state.dias_sem_mov = []
-        st.button("Limpar filtros", on_click=limpar_filtros)
-
-        # -----------------------------------
-        # BASE FINAL
-        # -----------------------------------
-
-        df_base = aplicar_filtros(
-            df_base_original,
-            st.session_state.dias,
-            st.session_state.status,
-            st.session_state.ocorrencias,
-            st.session_state.dias_sem_mov
-        )
-
-        # -----------------------------------
-        # GRÁFICOS
-        # -----------------------------------
-
-        grafico = (
-            df_base.groupby("Dias")
-            .size()
-            .reset_index(name="Quantidade")
-            .sort_values("Dias")
-        )
-
-        if not grafico.empty:
-
-            # DIAS
-            st.subheader("Distribuição por dias")
-
-            base_chart = alt.Chart(grafico).encode(
-                x=alt.X("Dias:O", axis=alt.Axis(labelAngle=0)),
-                y="Quantidade:Q"
-            )
-
-            chart = base_chart.mark_bar() + base_chart.mark_text(
-                dy=-10,
-                color="white"
-            ).encode(text="Quantidade:Q")
-
-            st.altair_chart(chart, use_container_width=True)
-
-        # STATUS
-        status_df = (
-            df_base.groupby("Status")
-            .size()
-            .reset_index(name="Quantidade")
-            .sort_values("Quantidade", ascending=False)
-        )
-
-        if not status_df.empty:
-
-            st.subheader("Status")
-
-            base_st = alt.Chart(status_df).encode(
-                y=alt.Y("Status:N", sort="-x"),
-                x="Quantidade:Q"
-            )
-
-            chart_st = base_st.mark_bar() + base_st.mark_text(
-                align="left",
-                dx=5,
-                color="white"
-            ).encode(text="Quantidade:Q")
-
-            st.altair_chart(chart_st, use_container_width=True)
-
-        # OCORRÊNCIAS
-        df_oc = df_base[
-            df_base["Ocorrencias"].notna() &
-            (df_base["Ocorrencias"].str.strip() != "")
-        ]
-
-        ocorrencias = (
-            df_oc.groupby("Ocorrencias")
-            .size()
-            .reset_index(name="Quantidade")
-            .sort_values("Quantidade", ascending=False)
-        )
-
-        if not ocorrencias.empty:
-
-            st.subheader("Ocorrências")
-
-            base_oc = alt.Chart(ocorrencias).encode(
-                y=alt.Y("Ocorrencias:N", sort="-x"),
-                x="Quantidade:Q"
-            )
-
-            chart_oc = base_oc.mark_bar() + base_oc.mark_text(
-                align="left",
-                dx=5,
-                color="white"
-            ).encode(text="Quantidade:Q")
-
-            st.altair_chart(chart_oc, use_container_width=True)
-
-        # -----------------------------------
-        # GRÁFICO - DIAS SEM MOVIMENTAÇÃO
-        # -----------------------------------
-
-        grafico_sm = (
-            df_base.groupby("Dias_sem_mov")
-            .size()
-            .reset_index(name="Quantidade")
-            .sort_values("Dias_sem_mov")
-        )
-
-        if not grafico_sm.empty:
-
-            st.subheader("Dias sem movimentação")
-
-            base_sm = alt.Chart(grafico_sm).encode(
-                x=alt.X(
-                    "Dias_sem_mov:O",
-                    title="Dias sem movimentação",
-                    axis=alt.Axis(labelAngle=0)
-                ),
-                y=alt.Y(
-                    "Quantidade:Q",
-                    title="Quantidade de pedidos"
-                )
-            )
-
-            chart_sm = base_sm.mark_bar() + base_sm.mark_text(
-                dy=-10,
-                color="white"
-            ).encode(
-                text="Quantidade:Q"
-            )
-
-            st.altair_chart(chart_sm, use_container_width=True)
-
-        # -----------------------------------
-        # TABELA FINAL
-        # -----------------------------------
-
-        st.subheader("Pedidos filtrados")
-
-        st.write(f"Total: {len(df_base)}")
-
-        st.dataframe(
-            df_base,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        import io
-
-        # -----------------------------------
-        # EXPORTAR PARA EXCEL
-        # -----------------------------------
-
-        def gerar_excel(df):
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                df.to_excel(writer, index=False, sheet_name="Pedidos")
-            return output.getvalue()
-
-        excel_data = gerar_excel(df_base)
-
-        st.download_button(
-            label="📥 Exportar para Excel",
-            data=excel_data,
-            file_name="pedidos_filtrados.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        st.divider()
-
-    df_encerrados = df[
-        (df["Prazo"].isna()) |
-        (df["Prazo"].astype(str).str.strip() == "")
-    ].copy()
-
-    if df_encerrados.empty:
-
-        st.info("Não a pedidos não entregues.")
-
-    else:
-
-        with st.sidebar:
-
-            st.markdown("### 📦 Base de pedidos não entregues")
-
-            if df_encerrados is not None and not df_encerrados.empty:
-                st.metric(
-                    label="Total de pedidos",
-                    value=len(df_encerrados)
-                )
-            else:
-                st.metric(
-                    label="Total de pedidos",
-                    value="—"
+                base_chart = alt.Chart(grafico).encode(
+                    x=alt.X(
+                        "Dias:O",
+                        title=eixo_x_titulo,
+                        axis=alt.Axis(labelAngle=0)
+                    ),
+                    y=alt.Y(
+                        "Quantidade:Q",
+                        axis=alt.Axis(tickMinStep=1)
+                    )
                 )
 
-        if df_encerrados is not None and not df_encerrados.empty:
-            excel_bytes = exportar_excel(df_encerrados)
+                chart = base_chart.mark_bar() + base_chart.mark_text(
+                    dy=-10,
+                    color="white"
+                ).encode(text="Quantidade:Q")
 
-            st.sidebar.download_button(
-                label="⬇️ Exportar base (.xlsx)",
-                data=excel_bytes,
-                file_name="df_encerrados.xlsx",
+                st.altair_chart(chart, use_container_width=True)
+
+            # STATUS
+            status_df = (
+                df_base.groupby("Status")
+                .size()
+                .reset_index(name="Quantidade")
+                .sort_values("Quantidade", ascending=False)
+            )
+
+            if not status_df.empty:
+
+                st.subheader(tituloStatus)
+
+                base_st = alt.Chart(status_df).encode(
+                    y=alt.Y("Status:N", sort="-x"),
+                    x=alt.X(
+                        "Quantidade:Q",
+                        axis=alt.Axis(tickMinStep=1)
+                    )
+                )
+
+                chart_st = base_st.mark_bar() + base_st.mark_text(
+                    align="left",
+                    dx=5,
+                    color="white"
+                ).encode(text="Quantidade:Q")
+
+                st.altair_chart(chart_st, use_container_width=True)
+
+            # OCORRÊNCIAS
+            df_oc = df_base[
+                df_base["Ocorrencias"].notna() &
+                (df_base["Ocorrencias"].str.strip() != "")
+            ]
+
+            ocorrencias = (
+                df_oc.groupby("Ocorrencias")
+                .size()
+                .reset_index(name="Quantidade")
+                .sort_values("Quantidade", ascending=False)
+            )
+
+            if not ocorrencias.empty:
+
+                st.subheader(tituloOcorrencias)
+
+                base_oc = alt.Chart(ocorrencias).encode(
+                    y=alt.Y("Ocorrencias:N", sort="-x"),
+                    x=alt.X(
+                        "Quantidade:Q",
+                        axis=alt.Axis(tickMinStep=1)
+                    )
+                )
+
+                chart_oc = base_oc.mark_bar() + base_oc.mark_text(
+                    align="left",
+                    dx=5,
+                    color="white"
+                ).encode(text="Quantidade:Q")
+
+                st.altair_chart(chart_oc, use_container_width=True)
+
+            # -----------------------------------
+            # GRÁFICO - DIAS SEM MOVIMENTAÇÃO
+            # -----------------------------------
+
+            grafico_sm = (
+                df_base.groupby("Dias_sem_mov")
+                .size()
+                .reset_index(name="Quantidade")
+                .sort_values("Dias_sem_mov")
+            )
+
+            if not grafico_sm.empty:
+
+                st.subheader(tituloDiasSemMov)
+
+                base_sm = alt.Chart(grafico_sm).encode(
+                    x=alt.X(
+                        "Dias_sem_mov:O",
+                        title="Dias sem movimentação",
+                        axis=alt.Axis(labelAngle=0)
+                    ),
+                    y=alt.Y(
+                        "Quantidade:Q",
+                        title="Quantidade de pedidos",
+                        axis=alt.Axis(tickMinStep=1)
+                    )
+                )
+
+                chart_sm = base_sm.mark_bar() + base_sm.mark_text(
+                    dy=-10,
+                    color="white"
+                ).encode(
+                    text="Quantidade:Q"
+                )
+
+                st.altair_chart(chart_sm, use_container_width=True)
+
+            # -----------------------------------
+            # TABELA FINAL
+            # -----------------------------------
+
+            st.subheader(tituloPedidosFiltrados)
+
+            st.write(f"Total: {len(df_base)}")
+
+            st.dataframe(
+                df_base,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            import io
+
+            # -----------------------------------
+            # EXPORTAR PARA EXCEL
+            # -----------------------------------
+
+            def gerar_excel(df):
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                    df.to_excel(writer, index=False, sheet_name="Pedidos")
+                return output.getvalue()
+
+            excel_data = gerar_excel(df_base)
+
+            st.download_button(
+                label="📥 Exportar para Excel",
+                data=excel_data,
+                file_name="pedidos_filtrados.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
+    elif tipo_pedido == "Pedidos Entregues (Performance OTD)":
+
+        from datetime import timedelta
+
+        df_perf = base_unificada.copy()
+
+        # -----------------------------------
+        # SOMENTE ENTREGUES
+        # -----------------------------------
+
+        df_perf = df_perf[
+            df_perf["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
+        ].copy()
+
+        if df_perf.empty:
+
+            st.info("Não há pedidos entregues na base.")
+
         else:
-            st.sidebar.download_button(
-                label="⬇️ Exportar base (.xlsx)",
-                data=b"",
-                disabled=True
+
+            st.subheader("Performance OTD")
+
+            # -----------------------------------
+            # TRATAMENTO DE DATA (🔥 CORREÇÃO PRINCIPAL)
+            # -----------------------------------
+
+            df_perf["Dt Evento"] = df_perf["Dt Evento"].astype(str).str.strip()
+
+            df_perf["Dt Evento"] = pd.to_datetime(
+                df_perf["Dt Evento"],
+                format="%d/%m/%Y %H:%M:%S",
+                errors="coerce"
             )
 
-
-        status_counts = df_encerrados["Status"].value_counts().reset_index()
-        status_counts.columns = ["Status", "Quantidade"]
-
-        st.subheader("Pedidos não entregues (Devoluções, Sinistros, entre outros)")
-        st.write(f"Total de pedidos: {len(df_encerrados):,}".replace(",", "."))
-
-        max_val = status_counts["Quantidade"].max()
-
-        base_st = alt.Chart(status_counts).encode(
-            y=alt.Y(
-                "Status:N",
-                sort="-x",
-                title="Status"  # 👈 nome das categorias (opcional)
-            ),
-            x=alt.X(
-                "Quantidade:Q",
-                title="Quantidade de pedidos",  # 👈 título do eixo (fica embaixo)
-                scale=alt.Scale(domain=[0, max_val * 1.15])
-            )
-        )
-
-        bars = base_st.mark_bar()
-
-        text = base_st.mark_text(
-            align="left",
-            dx=8,
-            color="white"
-        ).encode(
-            text=alt.Text("Quantidade:Q", format=",.0f")
-        )
-
-        chart = bars + text
-
-        st.altair_chart(chart, use_container_width=True)
-
-    from datetime import timedelta
-
-    st.divider()
-
-    df_perf = base_unificada.copy()
-
-    # -----------------------------------
-    # SOMENTE ENTREGUES
-    # -----------------------------------
-
-    df_perf = df_perf[
-        df_perf["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
-    ].copy()
-
-    if df_perf.empty:
-
-        st.info("Não há pedidos entregues na base.")
-
-    else:
-
-        st.subheader("Performance OTD")
-
-        # -----------------------------------
-        # TRATAMENTO DE DATA (🔥 CORREÇÃO PRINCIPAL)
-        # -----------------------------------
-
-        df_perf["Dt Evento"] = df_perf["Dt Evento"].astype(str).str.strip()
-
-        df_perf["Dt Evento"] = pd.to_datetime(
-            df_perf["Dt Evento"],
-            format="%d/%m/%Y %H:%M:%S",
-            errors="coerce"
-        )
-
-        # -----------------------------------
-        # RANGE REAL
-        # -----------------------------------
-
-        min_data = df_perf["Dt Evento"].min().date()
-        max_data = df_perf["Dt Evento"].max().date()
-
-        # -----------------------------------
-        # FILTROS
-        # -----------------------------------
-
-        col1, col2, col3 = st.columns([1,1,1])
-
-        with col1:
-            data_evento = st.date_input(
-                "Período de entrega",
-                value=(min_data, max_data),
-                min_value=min_data,
-                max_value=max_data
-            )
-
-        with col2:
-            tipo_ordem = st.radio(
-                "Ordenar por",
-                ["Quantidade", "Percentual"],
-                horizontal=True
-            )
-
-        with col3:
-            tipo_visao = st.radio(
-                "Visualização",
-                ["UF", "Região"],
-                horizontal=True
-            )
-
-        # -----------------------------------
-        # FILTRO DE DATA (🔥 CORRETO)
-        # -----------------------------------
-
-        if isinstance(data_evento, tuple) and len(data_evento) == 2:
-            data_ini, data_fim = data_evento
-
-            # inclui o dia inteiro final
-            data_fim = data_fim + timedelta(days=1)
-
-            df_perf = df_perf[
-                (df_perf["Dt Evento"].notna()) &
-                (df_perf["Dt Evento"] >= pd.to_datetime(data_ini)) &
-                (df_perf["Dt Evento"] < pd.to_datetime(data_fim))
-            ]
-
-        # -----------------------------------
-        # AGRUPAMENTO
-        # -----------------------------------
-
-        if tipo_visao == "Região":
-            df_perf["Grupo"] = df_perf["UF"].map(mapa_regiao)
-        else:
-            df_perf["Grupo"] = df_perf["UF"]
-
-        # -----------------------------------
-        # AGRUPAR
-        # -----------------------------------
-
-        df_grouped = (
-            df_perf.groupby(["Grupo", "Prazo"])
-            .size()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-
-        # garantir colunas
-        for col in ["NO PRAZO", "FORA DO PRAZO"]:
-            if col not in df_grouped.columns:
-                df_grouped[col] = 0
-
-        # -----------------------------------
-        # TOTAL
-        # -----------------------------------
-
-        df_grouped["Total"] = df_grouped["NO PRAZO"] + df_grouped["FORA DO PRAZO"]
-
-        # -----------------------------------
-        # %
-        # -----------------------------------
-
-        df_grouped["Percentual No Prazo"] = (df_grouped["NO PRAZO"] / df_grouped["Total"]) * 100
-        df_grouped["Percentual Atrasado"] = (df_grouped["FORA DO PRAZO"] / df_grouped["Total"]) * 100
-
-        # -----------------------------------
-        # ORDENAÇÃO
-        # -----------------------------------
-
-        if tipo_ordem == "Percentual":
-            df_grouped = df_grouped.sort_values(
-                ["Percentual No Prazo", "Total"],
-                ascending=[True, True]
-            )
-        else:
-            df_grouped = df_grouped.sort_values(
-                "Total",
-                ascending=True
-            )
-
-        # -----------------------------------
-        # TOTAL GERAL (NOVA BARRA)
-        # -----------------------------------
-
-        total_geral = pd.DataFrame({
-            "Grupo": ["Total"],
-            "NO PRAZO": [df_grouped["NO PRAZO"].sum()],
-            "FORA DO PRAZO": [df_grouped["FORA DO PRAZO"].sum()]
-        })
-
-        total_geral["Total"] = total_geral["NO PRAZO"] + total_geral["FORA DO PRAZO"]
-
-        total_geral["Percentual No Prazo"] = (
-            total_geral["NO PRAZO"] / total_geral["Total"]
-        ) * 100
-
-        total_geral["Percentual Atrasado"] = (
-            total_geral["FORA DO PRAZO"] / total_geral["Total"]
-        ) * 100
-
-        # juntar com o original
-        df_grouped = pd.concat([df_grouped, total_geral], ignore_index=True)
-
-        # -----------------------------------
-        # GRÁFICO
-        # -----------------------------------
-
-        fig = px.bar(
-            df_grouped,
-            x="Grupo",
-            y=["Percentual No Prazo", "Percentual Atrasado"],
-            labels={"value": "Percentual (%)", "variable": ""},
-            color_discrete_map={
-                "Percentual No Prazo": "#2ca02c",
-                "Percentual Atrasado": "#d62728"
-            }
-        )
-
-        # -----------------------------------
-        # HOVER COM QUANTIDADE
-        # -----------------------------------
-
-        fig.data[0].customdata = df_grouped["NO PRAZO"]
-        fig.data[1].customdata = df_grouped["FORA DO PRAZO"]
-
-        fig.data[0].hovertemplate = (
-            "Grupo: %{x}<br>"
-            "No prazo<br>"
-            "Percentual: %{y:.1f}%<br>"
-            "Qtd: %{customdata}<extra></extra>"
-        )
-
-        fig.data[1].hovertemplate = (
-            "Grupo: %{x}<br>"
-            "Fora do prazo<br>"
-            "Percentual: %{y:.1f}%<br>"
-            "Qtd: %{customdata}<extra></extra>"
-        )
-
-        # -----------------------------------
-        # TEXTO DENTRO DAS BARRAS
-        # -----------------------------------
-
-        fig.update_traces(
-            texttemplate="%{y:.0f}%",
-            textposition="inside",
-            textangle=0   # 🔥 força horizontal
-        )
-
-        # -----------------------------------
-        # TOTAL EM CIMA DA BARRA
-        # -----------------------------------
-
-        fig.add_scatter(
-            x=df_grouped["Grupo"],
-            y=[100] * len(df_grouped),
-            mode="text",
-            text=df_grouped["Total"],
-            textposition="top center",
-            showlegend=False,
-            hoverinfo="skip"
-        )
-
-        # -----------------------------------
-        # LAYOUT
-        # -----------------------------------
-
-        fig.update_layout(
-            barmode="stack",
-            yaxis=dict(range=[0, 110], ticksuffix="%"),  # 🔥 sobe o teto
-            legend_title_text=""
-        )
-
-        df_grouped["ordem"] = df_grouped["Grupo"].apply(
-            lambda x: 1 if x == "Total" else 0
-        )
-
-        df_grouped = df_grouped.sort_values(
-            ["ordem", "Percentual No Prazo" if tipo_ordem == "Percentual" else "Total"],
-            ascending=True
-        ).drop(columns="ordem")
-
-        # -----------------------------------
-        # STREAMLIT
-        # -----------------------------------
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # -----------------------------------
-        # BASE PARA OTD ORIGINAL
-        # -----------------------------------
-
-        total_no_prazo = (df_perf["Prazo"] == "NO PRAZO").sum()
-        total_atrasado = (df_perf["Prazo"] == "FORA DO PRAZO").sum()
-
-        df_otd = pd.DataFrame({
-            "Status": ["No Prazo", "Fora do Prazo"],
-            "Quantidade": [total_no_prazo, total_atrasado]
-        })
-
-        # -----------------------------------
-        # BASE PARA OTD JUSTIFICADO
-        # -----------------------------------
-
-        df_calc = df_perf.copy()
-
-        # padronizar ocorrência
-        df_calc["Ocorrencias"] = (
-            df_calc["Ocorrencias"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.upper()
-        )
-
-        # regra de justificativa
-        cond_justificado = (
-            (df_calc["Prazo"] == "FORA DO PRAZO") &
-            (
-                df_calc["Ocorrencias"].str.contains(
-                    "DEST\\. AUSENTE|PROB\\. ENDEREÇO",
-                    regex=True
+            # -----------------------------------
+            # RANGE REAL
+            # -----------------------------------
+
+            min_data = df_perf["Dt Evento"].min().date()
+            max_data = df_perf["Dt Evento"].max().date()
+
+            # -----------------------------------
+            # FILTROS
+            # -----------------------------------
+
+            col1, col2, col3 = st.columns([1,1,1])
+
+            with col1:
+                data_evento = st.date_input(
+                    "Período de entrega",
+                    value=(min_data, max_data),
+                    min_value=min_data,
+                    max_value=max_data
                 )
+
+            with col2:
+                tipo_ordem = st.radio(
+                    "Ordenar por",
+                    ["Quantidade", "Percentual"],
+                    horizontal=True
+                )
+
+            with col3:
+                tipo_visao = st.radio(
+                    "Visualização",
+                    ["UF", "Região"],
+                    horizontal=True
+                )
+
+            # -----------------------------------
+            # FILTRO DE DATA (🔥 CORRETO)
+            # -----------------------------------
+
+            if isinstance(data_evento, tuple) and len(data_evento) == 2:
+                data_ini, data_fim = data_evento
+
+                # inclui o dia inteiro final
+                data_fim = data_fim + timedelta(days=1)
+
+                df_perf = df_perf[
+                    (df_perf["Dt Evento"].notna()) &
+                    (df_perf["Dt Evento"] >= pd.to_datetime(data_ini)) &
+                    (df_perf["Dt Evento"] < pd.to_datetime(data_fim))
+                ]
+
+            # -----------------------------------
+            # AGRUPAMENTO
+            # -----------------------------------
+
+            if tipo_visao == "Região":
+                df_perf["Grupo"] = df_perf["UF"].map(mapa_regiao)
+            else:
+                df_perf["Grupo"] = df_perf["UF"]
+
+            # -----------------------------------
+            # AGRUPAR
+            # -----------------------------------
+
+            df_grouped = (
+                df_perf.groupby(["Grupo", "Prazo"])
+                .size()
+                .unstack(fill_value=0)
+                .reset_index()
             )
-        )
 
-        # recalcular "no prazo ajustado"
-        df_calc["No Prazo Ajustado"] = (
-            (df_calc["Prazo"] == "NO PRAZO") |
-            (cond_justificado)
-        )
+            # garantir colunas
+            for col in ["NO PRAZO", "FORA DO PRAZO"]:
+                if col not in df_grouped.columns:
+                    df_grouped[col] = 0
 
-        total_no_prazo_just = df_calc["No Prazo Ajustado"].sum()
-        total_atrasado_just = len(df_calc) - total_no_prazo_just
+            # -----------------------------------
+            # TOTAL
+            # -----------------------------------
 
-        df_otd_just = pd.DataFrame({
-            "Status": ["No Prazo", "Fora do Prazo"],
-            "Quantidade": [total_no_prazo_just, total_atrasado_just]
-        })
+            df_grouped["Total"] = df_grouped["NO PRAZO"] + df_grouped["FORA DO PRAZO"]
 
-        # -----------------------------------
-        # GRÁFICOS
-        # -----------------------------------
+            # -----------------------------------
+            # %
+            # -----------------------------------
 
-        col1, col2 = st.columns(2)
+            df_grouped["Percentual No Prazo"] = (df_grouped["NO PRAZO"] / df_grouped["Total"]) * 100
+            df_grouped["Percentual Atrasado"] = (df_grouped["FORA DO PRAZO"] / df_grouped["Total"]) * 100
 
-        with col1:
-            fig1 = px.pie(
-                df_otd,
-                names="Status",
-                values="Quantidade",
-                title="OTD Original",
-                hole=0.4
+            # -----------------------------------
+            # ORDENAÇÃO
+            # -----------------------------------
+
+            if tipo_ordem == "Percentual":
+                df_grouped = df_grouped.sort_values(
+                    ["Percentual No Prazo", "Total"],
+                    ascending=[True, True]
+                )
+            else:
+                df_grouped = df_grouped.sort_values(
+                    "Total",
+                    ascending=True
+                )
+
+            # -----------------------------------
+            # TOTAL GERAL (NOVA BARRA)
+            # -----------------------------------
+
+            total_geral = pd.DataFrame({
+                "Grupo": ["Total"],
+                "NO PRAZO": [df_grouped["NO PRAZO"].sum()],
+                "FORA DO PRAZO": [df_grouped["FORA DO PRAZO"].sum()]
+            })
+
+            total_geral["Total"] = total_geral["NO PRAZO"] + total_geral["FORA DO PRAZO"]
+
+            total_geral["Percentual No Prazo"] = (
+                total_geral["NO PRAZO"] / total_geral["Total"]
+            ) * 100
+
+            total_geral["Percentual Atrasado"] = (
+                total_geral["FORA DO PRAZO"] / total_geral["Total"]
+            ) * 100
+
+            # juntar com o original
+            df_grouped = pd.concat([df_grouped, total_geral], ignore_index=True)
+
+            # -----------------------------------
+            # GRÁFICO
+            # -----------------------------------
+
+            fig = px.bar(
+                df_grouped,
+                x="Grupo",
+                y=["Percentual No Prazo", "Percentual Atrasado"],
+                labels={"value": "Percentual (%)", "variable": ""},
+                color_discrete_map={
+                    "Percentual No Prazo": "#2ca02c",
+                    "Percentual Atrasado": "#d62728"
+                }
             )
-            st.plotly_chart(fig1, use_container_width=True)
 
-        with col2:
-            fig2 = px.pie(
-                df_otd_just,
-                names="Status",
-                values="Quantidade",
-                title="OTD Justificado",
-                hole=0.4
+            # -----------------------------------
+            # HOVER COM QUANTIDADE
+            # -----------------------------------
+
+            fig.data[0].customdata = df_grouped["NO PRAZO"]
+            fig.data[1].customdata = df_grouped["FORA DO PRAZO"]
+
+            fig.data[0].hovertemplate = (
+                "Grupo: %{x}<br>"
+                "No prazo<br>"
+                "Percentual: %{y:.1f}%<br>"
+                "Qtd: %{customdata}<extra></extra>"
             )
-            st.plotly_chart(fig2, use_container_width=True)
 
-        st.subheader("Evolução do OTD")
-
-        df_linha = base_unificada.copy()
-
-        # -----------------------------------
-        # SOMENTE ENTREGUES
-        # -----------------------------------
-
-        df_linha = df_linha[
-            df_linha["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
-        ].copy()
-
-        # -----------------------------------
-        # TRATAMENTO DATA
-        # -----------------------------------
-
-        df_linha["Dt Evento"] = df_linha["Dt Evento"].astype(str).str.strip()
-
-        df_linha["Dt Evento"] = pd.to_datetime(
-            df_linha["Dt Evento"],
-            format="%d/%m/%Y %H:%M:%S",
-            errors="coerce"
-        )
-
-        df_linha = df_linha[df_linha["Dt Evento"].notna()]
-
-        # -----------------------------------
-        # FILTRO PERÍODO (usa o mesmo do gráfico anterior se quiser)
-        # -----------------------------------
-
-        if isinstance(data_evento, tuple) and len(data_evento) == 2:
-            data_ini, data_fim = data_evento
-            data_fim = data_fim + pd.Timedelta(days=1)
-
-            df_linha = df_linha[
-                (df_linha["Dt Evento"] >= pd.to_datetime(data_ini)) &
-                (df_linha["Dt Evento"] < pd.to_datetime(data_fim))
-            ]
-
-        # -----------------------------------
-        # CONTROLE DE VISÃO
-        # -----------------------------------
-
-        tipo_periodo = st.radio(
-            "Período",
-            ["Diário", "Semanal", "Mensal"],
-            horizontal=True
-        )
-
-        # -----------------------------------
-        # AGRUPAMENTO POR PERÍODO
-        # -----------------------------------
-
-        if tipo_periodo == "Diário":
-            df_linha["Periodo"] = df_linha["Dt Evento"].dt.date
-
-        elif tipo_periodo == "Semanal":
-            df_linha["Periodo"] = df_linha["Dt Evento"].dt.to_period("W").apply(lambda r: r.start_time)
-
-        else:  # Mensal
-            df_linha["Periodo"] = df_linha["Dt Evento"].dt.to_period("M").apply(lambda r: r.start_time)
-
-        # -----------------------------------
-        # AGRUPAR
-        # -----------------------------------
-
-        df_grouped_linha = (
-            df_linha.groupby(["Periodo", "Prazo"])
-            .size()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-
-        # garantir colunas
-        for col in ["NO PRAZO", "FORA DO PRAZO"]:
-            if col not in df_grouped_linha.columns:
-                df_grouped_linha[col] = 0
-
-        # -----------------------------------
-        # CALCULAR OTD
-        # -----------------------------------
-
-        df_grouped_linha["Total"] = (
-            df_grouped_linha["NO PRAZO"] + df_grouped_linha["FORA DO PRAZO"]
-        )
-
-        df_grouped_linha["OTD"] = (
-            df_grouped_linha["NO PRAZO"] / df_grouped_linha["Total"]
-        ) * 100
-
-        # ordenar por data
-        df_grouped_linha = df_grouped_linha.sort_values("Periodo")
-
-        # -----------------------------------
-        # GRÁFICO
-        # -----------------------------------
-
-        fig_linha = px.line(
-            df_grouped_linha,
-            x="Periodo",
-            y="OTD",
-            markers=True
-        )
-
-        # hover bonito
-        fig_linha.update_traces(
-            hovertemplate=
-            "Período: %{x}<br>" +
-            "OTD: %{y:.1f}%<br>" +
-            "Pedidos: %{customdata}<extra></extra>",
-            customdata=df_grouped_linha["Total"]
-        )
-
-        # layout
-        fig_linha.update_layout(
-            yaxis=dict(ticksuffix="%"),
-            xaxis_title="",
-            yaxis_title="OTD (%)"
-        )
-
-        # -----------------------------------
-        # STREAMLIT
-        # -----------------------------------
-
-        st.plotly_chart(fig_linha, use_container_width=True)
-
-        df_atraso = base_unificada.copy()
-
-        # -----------------------------------
-        # SOMENTE ENTREGUES
-        # -----------------------------------
-
-        df_atraso = df_atraso[df_atraso["Status"] == "ENTREGUE"].copy()
-
-        # -----------------------------------
-        # TRATAMENTO DATA
-        # -----------------------------------
-
-        df_atraso["Dt Evento"] = pd.to_datetime(
-            df_atraso["Dt Evento"].astype(str).str.strip(),
-            format="%d/%m/%Y %H:%M:%S",
-            errors="coerce"
-        )
-
-        df_atraso["Previsao"] = pd.to_datetime(
-            df_atraso["Previsao"].astype(str).str.strip(),
-            format="%d/%m/%Y",
-            errors="coerce"
-        )
-
-        df_atraso = df_atraso.dropna(subset=["Dt Evento", "Previsao"])
-
-        # -----------------------------------
-        # FILTRO DE DATA (🔥 MESMO DO DASH)
-        # -----------------------------------
-
-        if isinstance(data_evento, tuple) and len(data_evento) == 2:
-            ini, fim = data_evento
-            fim = fim + pd.Timedelta(days=1)
-
-            df_atraso = df_atraso[
-                (df_atraso["Dt Evento"] >= pd.to_datetime(ini)) &
-                (df_atraso["Dt Evento"] < pd.to_datetime(fim))
-            ]
-
-        # -----------------------------------
-        # CALCULAR DIAS DE ATRASO
-        # -----------------------------------
-
-        df_atraso["Dias Atraso"] = (
-            df_atraso["Dt Evento"] - df_atraso["Previsao"]
-        ).dt.days
-
-        # -----------------------------------
-        # SOMENTE ATRASOS
-        # -----------------------------------
-
-        df_atraso = df_atraso[df_atraso["Dias Atraso"] > 0]
-
-        # -----------------------------------
-        # AGRUPAR
-        # -----------------------------------
-
-        df_dist = (
-            df_atraso.groupby("Dias Atraso")
-            .size()
-            .reset_index(name="Pedidos")
-        )
-
-        # -----------------------------------
-        # TOTAL
-        # -----------------------------------
-
-        total_atrasados = df_dist["Pedidos"].sum()
-
-        st.subheader("Distribuição de atrasos (dias)")
-
-        st.markdown(f"**Total de pedidos em atraso: {total_atrasados:,}**")
-
-        # -----------------------------------
-        # ORDENAR POR DIAS (CORRETO)
-        # -----------------------------------
-
-        df_dist = df_dist.sort_values("Dias Atraso")
-
-        # criar versão string só pra exibir
-        df_dist["Dias_str"] = df_dist["Dias Atraso"].astype(int).astype(str)
-
-        ordem = df_dist["Dias_str"].tolist()
-
-        base = alt.Chart(df_dist)
-
-        # -----------------------------------
-        # BARRAS
-        # -----------------------------------
-
-        bars = base.mark_bar(
-            color="#6baed6"
-        ).encode(
-            x=alt.X(
-                "Dias_str:N",
-                sort=ordem,
-                title="Dias de atraso",
-                axis=alt.Axis(labelAngle=0)  # 🔥 aqui
-            ),
-            y=alt.Y(
-                "Pedidos:Q",
-                title="Quantidade"
+            fig.data[1].hovertemplate = (
+                "Grupo: %{x}<br>"
+                "Fora do prazo<br>"
+                "Percentual: %{y:.1f}%<br>"
+                "Qtd: %{customdata}<extra></extra>"
             )
-        )
 
-        text = base.mark_text(
-            dy=-8,
-            color="white"
-        ).encode(
-            x=alt.X(
-                "Dias_str:N",
-                sort=ordem,
-                axis=alt.Axis(labelAngle=0)  # 🔥 aqui também
-            ),
-            y="Pedidos:Q",
-            text="Pedidos:Q"
-        )
+            # -----------------------------------
+            # TEXTO DENTRO DAS BARRAS
+            # -----------------------------------
 
-        # -----------------------------------
-        # FINAL
-        # -----------------------------------
+            fig.update_traces(
+                texttemplate="%{y:.0f}%",
+                textposition="inside",
+                textangle=0   # 🔥 força horizontal
+            )
 
-        chart = (bars + text).properties(
-            height=400
-        )
+            # -----------------------------------
+            # TOTAL EM CIMA DA BARRA
+            # -----------------------------------
 
-        st.altair_chart(chart, use_container_width=True)
+            fig.add_scatter(
+                x=df_grouped["Grupo"],
+                y=[100] * len(df_grouped),
+                mode="text",
+                text=df_grouped["Total"],
+                textposition="top center",
+                showlegend=False,
+                hoverinfo="skip"
+            )
 
-        st.subheader("Ocorrências - Pedidos em Atraso")
+            # -----------------------------------
+            # LAYOUT
+            # -----------------------------------
 
-        # -----------------------------------
-        # FILTRAR SOMENTE ATRASADOS COM OCORRÊNCIA
-        # -----------------------------------
+            fig.update_layout(
+                barmode="stack",
+                yaxis=dict(range=[0, 110], ticksuffix="%"),  # 🔥 sobe o teto
+                legend_title_text=""
+            )
 
-        df_atraso = df_perf[
-            (df_perf["Prazo"] == "FORA DO PRAZO") &
-            (df_perf["Ocorrencias"].notna()) &
-            (df_perf["Ocorrencias"] != "")
-        ].copy()
+            df_grouped["ordem"] = df_grouped["Grupo"].apply(
+                lambda x: 1 if x == "Total" else 0
+            )
 
-        # -----------------------------------
-        # AGRUPAR OCORRÊNCIAS
-        # -----------------------------------
+            df_grouped = df_grouped.sort_values(
+                ["ordem", "Percentual No Prazo" if tipo_ordem == "Percentual" else "Total"],
+                ascending=True
+            ).drop(columns="ordem")
 
-        df_ocorrencias = (
-            df_atraso.groupby("Ocorrencias")
-            .size()
-            .reset_index(name="Quantidade")
-        )
+            # -----------------------------------
+            # STREAMLIT
+            # -----------------------------------
 
-        # -----------------------------------
-        # TOTAL
-        # -----------------------------------
+            st.plotly_chart(fig, use_container_width=True)
 
-        total_ocorrencias = df_ocorrencias["Quantidade"].sum()
+            # -----------------------------------
+            # BASE PARA OTD ORIGINAL
+            # -----------------------------------
 
-        # -----------------------------------
-        # PERCENTUAL
-        # -----------------------------------
+            total_no_prazo = (df_perf["Prazo"] == "NO PRAZO").sum()
+            total_atrasado = (df_perf["Prazo"] == "FORA DO PRAZO").sum()
 
-        df_ocorrencias["Percentual (%)"] = (
-            df_ocorrencias["Quantidade"] / total_ocorrencias
-        ) * 100
+            df_otd = pd.DataFrame({
+                "Status": ["No Prazo", "Fora do Prazo"],
+                "Quantidade": [total_no_prazo, total_atrasado]
+            })
 
-        # -----------------------------------
-        # ORDENAR (maior para menor)
-        # -----------------------------------
+            # -----------------------------------
+            # BASE PARA OTD JUSTIFICADO
+            # -----------------------------------
 
-        df_ocorrencias = df_ocorrencias.sort_values(
-            "Quantidade",
-            ascending=False
-        )
-
-        # -----------------------------------
-        # LINHA TOTAL
-        # -----------------------------------
-
-        linha_total = pd.DataFrame({
-            "Ocorrencias": ["Total"],
-            "Quantidade": [total_ocorrencias],
-            "Percentual (%)": [100.0]
-        })
-
-        df_ocorrencias = pd.concat(
-            [df_ocorrencias, linha_total],
-            ignore_index=True
-        )
-
-        # -----------------------------------
-        # FORMATAÇÃO
-        # -----------------------------------
-
-        df_ocorrencias["Percentual (%)"] = df_ocorrencias["Percentual (%)"].round(2)
-
-        # -----------------------------------
-        # EXIBIR
-        # -----------------------------------
-
-        st.dataframe(
-            df_ocorrencias, 
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # -----------------------------------
-        # FILTRAR ATRASADOS
-        # -----------------------------------
-
-        df_atraso = df_perf[
-            (df_perf["Prazo"] == "FORA DO PRAZO") &
-            (df_perf["Destino"].notna())
-        ].copy()
-
-        if df_atraso.empty:
-
-            st.info("Não há unidades ofensoras.")
-            
-        else:
-
-            st.subheader("Unidades ofensores")
+            df_calc = df_perf.copy()
 
             # padronizar ocorrência
-            df_atraso["Ocorrencias"] = (
-                df_atraso["Ocorrencias"]
+            df_calc["Ocorrencias"] = (
+                df_calc["Ocorrencias"]
                 .fillna("")
                 .astype(str)
                 .str.strip()
+                .str.upper()
             )
 
-            df_atraso.loc[
-                (df_atraso["Ocorrencias"] == "") |
-                (df_atraso["Ocorrencias"].str.upper() == "NAN"),
-                "Ocorrencias"
-            ] = "Atraso sem ocorrência"
-
-            # -----------------------------------
-            # AGRUPAR DESTINO + OCORRÊNCIA
-            # -----------------------------------
-
-            df_temp = (
-                df_atraso
-                .groupby(["Destino", "Ocorrencias"])
-                .size()
-                .reset_index(name="Qtd")
-            )
-
-            # -----------------------------------
-            # MONTAR TEXTO DAS OCORRÊNCIAS
-            # -----------------------------------
-
-            def montar_ocorrencias(grupo):
-                grupo = grupo.sort_values("Qtd", ascending=False)
-                return ", ".join(
-                    [f"{row['Ocorrencias']} ({row['Qtd']})" for _, row in grupo.iterrows()]
+            # regra de justificativa
+            cond_justificado = (
+                (df_calc["Prazo"] == "FORA DO PRAZO") &
+                (
+                    df_calc["Ocorrencias"].str.contains(
+                        "DEST\\. AUSENTE|PROB\\. ENDEREÇO",
+                        regex=True
+                    )
                 )
+            )
+
+            # recalcular "no prazo ajustado"
+            df_calc["No Prazo Ajustado"] = (
+                (df_calc["Prazo"] == "NO PRAZO") |
+                (cond_justificado)
+            )
+
+            total_no_prazo_just = df_calc["No Prazo Ajustado"].sum()
+            total_atrasado_just = len(df_calc) - total_no_prazo_just
+
+            df_otd_just = pd.DataFrame({
+                "Status": ["No Prazo", "Fora do Prazo"],
+                "Quantidade": [total_no_prazo_just, total_atrasado_just]
+            })
+
+            # -----------------------------------
+            # GRÁFICOS
+            # -----------------------------------
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                fig1 = px.pie(
+                    df_otd,
+                    names="Status",
+                    values="Quantidade",
+                    title="OTD Original",
+                    hole=0.4
+                )
+                st.plotly_chart(fig1, use_container_width=True)
+
+            with col2:
+                fig2 = px.pie(
+                    df_otd_just,
+                    names="Status",
+                    values="Quantidade",
+                    title="OTD Justificado",
+                    hole=0.4
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+
+            st.subheader("Evolução do OTD")
+
+            df_linha = base_unificada.copy()
+
+            # -----------------------------------
+            # SOMENTE ENTREGUES
+            # -----------------------------------
+
+            df_linha = df_linha[
+                df_linha["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
+            ].copy()
+
+            # -----------------------------------
+            # TRATAMENTO DATA
+            # -----------------------------------
+
+            df_linha["Dt Evento"] = df_linha["Dt Evento"].astype(str).str.strip()
+
+            df_linha["Dt Evento"] = pd.to_datetime(
+                df_linha["Dt Evento"],
+                format="%d/%m/%Y %H:%M:%S",
+                errors="coerce"
+            )
+
+            df_linha = df_linha[df_linha["Dt Evento"].notna()]
+
+            # -----------------------------------
+            # FILTRO PERÍODO (usa o mesmo do gráfico anterior se quiser)
+            # -----------------------------------
+
+            if isinstance(data_evento, tuple) and len(data_evento) == 2:
+                data_ini, data_fim = data_evento
+                data_fim = data_fim + pd.Timedelta(days=1)
+
+                df_linha = df_linha[
+                    (df_linha["Dt Evento"] >= pd.to_datetime(data_ini)) &
+                    (df_linha["Dt Evento"] < pd.to_datetime(data_fim))
+                ]
+
+            # -----------------------------------
+            # CONTROLE DE VISÃO
+            # -----------------------------------
+
+            tipo_periodo = st.radio(
+                "Período",
+                ["Diário", "Semanal", "Mensal"],
+                horizontal=True
+            )
+
+            # -----------------------------------
+            # AGRUPAMENTO POR PERÍODO
+            # -----------------------------------
+
+            if tipo_periodo == "Diário":
+                df_linha["Periodo"] = df_linha["Dt Evento"].dt.date
+
+            elif tipo_periodo == "Semanal":
+                df_linha["Periodo"] = df_linha["Dt Evento"].dt.to_period("W").apply(lambda r: r.start_time)
+
+            else:  # Mensal
+                df_linha["Periodo"] = df_linha["Dt Evento"].dt.to_period("M").apply(lambda r: r.start_time)
+
+            # -----------------------------------
+            # AGRUPAR
+            # -----------------------------------
+
+            df_grouped_linha = (
+                df_linha.groupby(["Periodo", "Prazo"])
+                .size()
+                .unstack(fill_value=0)
+                .reset_index()
+            )
+
+            # garantir colunas
+            for col in ["NO PRAZO", "FORA DO PRAZO"]:
+                if col not in df_grouped_linha.columns:
+                    df_grouped_linha[col] = 0
+
+            # -----------------------------------
+            # CALCULAR OTD
+            # -----------------------------------
+
+            df_grouped_linha["Total"] = (
+                df_grouped_linha["NO PRAZO"] + df_grouped_linha["FORA DO PRAZO"]
+            )
+
+            df_grouped_linha["OTD"] = (
+                df_grouped_linha["NO PRAZO"] / df_grouped_linha["Total"]
+            ) * 100
+
+            # ordenar por data
+            df_grouped_linha = df_grouped_linha.sort_values("Periodo")
+
+            # -----------------------------------
+            # GRÁFICO
+            # -----------------------------------
+
+            fig_linha = px.line(
+                df_grouped_linha,
+                x="Periodo",
+                y="OTD",
+                markers=True
+            )
+
+            # hover bonito
+            fig_linha.update_traces(
+                hovertemplate=
+                "Período: %{x}<br>" +
+                "OTD: %{y:.1f}%<br>" +
+                "Pedidos: %{customdata}<extra></extra>",
+                customdata=df_grouped_linha["Total"]
+            )
+
+            # layout
+            fig_linha.update_layout(
+                yaxis=dict(ticksuffix="%"),
+                xaxis_title="",
+                yaxis_title="OTD (%)"
+            )
+
+            # -----------------------------------
+            # STREAMLIT
+            # -----------------------------------
+
+            st.plotly_chart(fig_linha, use_container_width=True)
+
+            df_atraso = base_unificada.copy()
+
+            # -----------------------------------
+            # SOMENTE ENTREGUES
+            # -----------------------------------
+
+            df_atraso = df_atraso[df_atraso["Status"] == "ENTREGUE"].copy()
+
+            # -----------------------------------
+            # TRATAMENTO DATA
+            # -----------------------------------
+
+            df_atraso["Dt Evento"] = pd.to_datetime(
+                df_atraso["Dt Evento"].astype(str).str.strip(),
+                format="%d/%m/%Y %H:%M:%S",
+                errors="coerce"
+            )
+
+            df_atraso["Previsao"] = pd.to_datetime(
+                df_atraso["Previsao"].astype(str).str.strip(),
+                format="%d/%m/%Y",
+                errors="coerce"
+            )
+
+            df_atraso = df_atraso.dropna(subset=["Dt Evento", "Previsao"])
+
+            # -----------------------------------
+            # FILTRO DE DATA (🔥 MESMO DO DASH)
+            # -----------------------------------
+
+            if isinstance(data_evento, tuple) and len(data_evento) == 2:
+                ini, fim = data_evento
+                fim = fim + pd.Timedelta(days=1)
+
+                df_atraso = df_atraso[
+                    (df_atraso["Dt Evento"] >= pd.to_datetime(ini)) &
+                    (df_atraso["Dt Evento"] < pd.to_datetime(fim))
+                ]
+
+            # -----------------------------------
+            # CALCULAR DIAS DE ATRASO
+            # -----------------------------------
+
+            df_atraso["Dias Atraso"] = (
+                df_atraso["Dt Evento"] - df_atraso["Previsao"]
+            ).dt.days
+
+            # -----------------------------------
+            # SOMENTE ATRASOS
+            # -----------------------------------
+
+            df_atraso = df_atraso[df_atraso["Dias Atraso"] > 0]
+
+            # -----------------------------------
+            # AGRUPAR
+            # -----------------------------------
+
+            df_dist = (
+                df_atraso.groupby("Dias Atraso")
+                .size()
+                .reset_index(name="Pedidos")
+            )
+
+            # -----------------------------------
+            # TOTAL
+            # -----------------------------------
+
+            total_atrasados = df_dist["Pedidos"].sum()
+
+            st.subheader("Distribuição de atrasos (dias)")
+
+            st.markdown(f"**Total de pedidos em atraso: {total_atrasados:,}**")
+
+            # -----------------------------------
+            # ORDENAR POR DIAS (CORRETO)
+            # -----------------------------------
+
+            df_dist = df_dist.sort_values("Dias Atraso")
+
+            # criar versão string só pra exibir
+            df_dist["Dias_str"] = df_dist["Dias Atraso"].astype(int).astype(str)
+
+            ordem = df_dist["Dias_str"].tolist()
+
+            base = alt.Chart(df_dist)
+
+            # -----------------------------------
+            # BARRAS
+            # -----------------------------------
+
+            bars = base.mark_bar(
+                color="#6baed6"
+            ).encode(
+                x=alt.X(
+                    "Dias_str:N",
+                    sort=ordem,
+                    title="Dias de atraso",
+                    axis=alt.Axis(labelAngle=0)  # 🔥 aqui
+                ),
+                y=alt.Y(
+                    "Pedidos:Q",
+                    title="Quantidade"
+                )
+            )
+
+            text = base.mark_text(
+                dy=-8,
+                color="white"
+            ).encode(
+                x=alt.X(
+                    "Dias_str:N",
+                    sort=ordem,
+                    axis=alt.Axis(labelAngle=0)  # 🔥 aqui também
+                ),
+                y="Pedidos:Q",
+                text="Pedidos:Q"
+            )
+
+            # -----------------------------------
+            # FINAL
+            # -----------------------------------
+
+            chart = (bars + text).properties(
+                height=400
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+
+            st.subheader("Ocorrências - Pedidos em Atraso")
+
+            # -----------------------------------
+            # FILTRAR SOMENTE ATRASADOS COM OCORRÊNCIA
+            # -----------------------------------
+
+            df_atraso = df_perf[
+                (df_perf["Prazo"] == "FORA DO PRAZO") &
+                (df_perf["Ocorrencias"].notna()) &
+                (df_perf["Ocorrencias"] != "")
+            ].copy()
+
+            # -----------------------------------
+            # AGRUPAR OCORRÊNCIAS
+            # -----------------------------------
 
             df_ocorrencias = (
-                df_temp
-                .groupby("Destino")
-                .apply(montar_ocorrencias)
-                .reset_index(name="Ocorrências")
-            )
-
-            # -----------------------------------
-            # QUANTIDADE TOTAL POR UNIDADE
-            # -----------------------------------
-
-            df_qtd = (
-                df_atraso
-                .groupby("Destino")
+                df_atraso.groupby("Ocorrencias")
                 .size()
                 .reset_index(name="Quantidade")
             )
 
-            # juntar
-            df_final = df_ocorrencias.merge(df_qtd, on="Destino")
+            # -----------------------------------
+            # TOTAL
+            # -----------------------------------
+
+            total_ocorrencias = df_ocorrencias["Quantidade"].sum()
 
             # -----------------------------------
             # PERCENTUAL
             # -----------------------------------
 
-            total_geral = df_final["Quantidade"].sum()
-
-            df_final["Percentual (%)"] = (
-                df_final["Quantidade"] / total_geral
+            df_ocorrencias["Percentual (%)"] = (
+                df_ocorrencias["Quantidade"] / total_ocorrencias
             ) * 100
 
             # -----------------------------------
-            # ORDENAR (maior ofensores primeiro)
+            # ORDENAR (maior para menor)
             # -----------------------------------
 
-            df_final = df_final.sort_values(
+            df_ocorrencias = df_ocorrencias.sort_values(
                 "Quantidade",
                 ascending=False
             )
@@ -1730,318 +1568,521 @@ if base_unificada is not None:
             # -----------------------------------
 
             linha_total = pd.DataFrame({
-                "Destino": ["Total"],
-                "Ocorrências": [""],
-                "Quantidade": [total_geral],
+                "Ocorrencias": ["Total"],
+                "Quantidade": [total_ocorrencias],
                 "Percentual (%)": [100.0]
             })
 
-            df_final = pd.concat([df_final, linha_total], ignore_index=True)
+            df_ocorrencias = pd.concat(
+                [df_ocorrencias, linha_total],
+                ignore_index=True
+            )
 
             # -----------------------------------
             # FORMATAÇÃO
             # -----------------------------------
 
-            df_final["Percentual (%)"] = df_final["Percentual (%)"].round(2)
-
-            # renomear colunas igual imagem
-            df_final = df_final.rename(columns={
-                "Destino": "Unidade"
-            })
+            df_ocorrencias["Percentual (%)"] = df_ocorrencias["Percentual (%)"].round(2)
 
             # -----------------------------------
             # EXIBIR
             # -----------------------------------
 
             st.dataframe(
-                df_final, 
+                df_ocorrencias, 
                 use_container_width=True,
                 hide_index=True
             )
 
-            import io
-
             # -----------------------------------
-            # BASE PARA EXPORT
+            # FILTRAR ATRASADOS
             # -----------------------------------
 
-            df_export = df_atraso.copy()
+            df_atraso = df_perf[
+                (df_perf["Prazo"] == "FORA DO PRAZO") &
+                (df_perf["Destino"].notna())
+            ].copy()
 
-            # selecionar colunas relevantes (ajuste se quiser)
-            colunas_export = [
-                "Codigo",
-                "Destino",
-                "Dt Evento",
-                "Previsao",
-                "Dias Atraso",
-                "Ocorrencias"
-            ]
+            if df_atraso.empty:
 
-            colunas_existentes = [c for c in colunas_export if c in df_export.columns]
+                st.info("Não há unidades ofensoras.")
+                
+            else:
 
-            df_export = df_export[colunas_existentes]
+                st.subheader("Unidades ofensores")
 
-            # -----------------------------------
-            # GERAR EXCEL EM MEMÓRIA
-            # -----------------------------------
+                # padronizar ocorrência
+                df_atraso["Ocorrencias"] = (
+                    df_atraso["Ocorrencias"]
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                )
 
-            buffer = io.BytesIO()
+                df_atraso.loc[
+                    (df_atraso["Ocorrencias"] == "SEM OCORRENCIA") |
+                    (df_atraso["Ocorrencias"].str.upper() == "NAN"),
+                    "Ocorrencias"
+                ] = "Atraso sem ocorrência"
 
-            with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                df_export.to_excel(writer, index=False, sheet_name="Atrasos")
+                # -----------------------------------
+                # AGRUPAR DESTINO + OCORRÊNCIA
+                # -----------------------------------
 
-            # -----------------------------------
-            # BOTÃO DOWNLOAD
-            # -----------------------------------
+                df_temp = (
+                    df_atraso
+                    .groupby(["Destino", "Ocorrencias"])
+                    .size()
+                    .reset_index(name="Qtd")
+                )
 
-            st.download_button(
-                label="📥 Exportar base de atrasos",
-                data=buffer.getvalue(),
-                file_name="base_atrasos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                # -----------------------------------
+                # MONTAR TEXTO DAS OCORRÊNCIAS
+                # -----------------------------------
 
-        st.subheader("Performance OTD – Visão Detalhada")
-
-        df_tabela = base_unificada.copy()
-
-        # -----------------------------------
-        # SOMENTE ENTREGUES
-        # -----------------------------------
-
-        df_tabela = df_tabela[
-            df_tabela["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
-        ].copy()
-
-        # -----------------------------------
-        # TRATAMENTO DATA
-        # -----------------------------------
-
-        df_tabela["Dt Evento"] = df_tabela["Dt Evento"].astype(str).str.strip()
-
-        df_tabela["Dt Evento"] = pd.to_datetime(
-            df_tabela["Dt Evento"],
-            format="%d/%m/%Y %H:%M:%S",
-            errors="coerce"
-        )
-
-        # -----------------------------------
-        # FILTRO DE DATA
-        # -----------------------------------
-
-        if isinstance(data_evento, tuple) and len(data_evento) == 2:
-            data_ini, data_fim = data_evento
-            data_fim = data_fim + pd.Timedelta(days=1)
-
-            df_tabela = df_tabela[
-                (df_tabela["Dt Evento"] >= pd.to_datetime(data_ini)) &
-                (df_tabela["Dt Evento"] < pd.to_datetime(data_fim))
-            ]
-
-        # -----------------------------------
-        # CONTROLES (CHECKBOX + INPUT)
-        # -----------------------------------
-
-        col4, col5, col6 = st.columns([1, 1, 1])
-
-        with col4:
-            usar_justificados = st.checkbox("Atrasos justificados", value=False)
-
-        with col5:
-            usar_baixa_indevida = st.checkbox("Baixas indevidas (1 dia de atraso e sem ocorrência)", value=False)
-
-        with col6:
-            dias_extra = st.number_input("Dias extras", min_value=0, max_value=10, value=0)
-
-        # -----------------------------------
-        # PREPARAÇÃO
-        # -----------------------------------
-
-        df_tabela["Ocorrencias"] = df_tabela["Ocorrencias"].astype(str).str.strip()
-
-        df_tabela["Previsao"] = pd.to_datetime(
-            df_tabela["Previsao"].astype(str).str.strip(),
-            format="%d/%m/%Y",
-            errors="coerce"
-        )
-
-        # aplicar dias extras
-        df_tabela["Previsao Ajustada"] = df_tabela["Previsao"] + pd.to_timedelta(dias_extra, unit="D")
-
-        # calcular atraso
-        df_tabela["Dias Atraso"] = (
-            df_tabela["Dt Evento"].dt.normalize() - df_tabela["Previsao Ajustada"].dt.normalize()
-        ).dt.days
-
-        # novo prazo
-        df_tabela["Prazo Ajustado"] = df_tabela["Dias Atraso"].apply(
-            lambda x: "NO PRAZO" if x <= 0 else "FORA DO PRAZO"
-        )
-
-        # -----------------------------------
-        # REGRAS
-        # -----------------------------------
-
-        ocorrencias_validas = ["DEST. AUSENTE", "PROB. ENDEREÇO"]
-
-        cond_justificado = (
-            (df_tabela["Prazo Ajustado"] == "FORA DO PRAZO") &
-            (df_tabela["Ocorrencias"].apply(lambda x: any(oc in x for oc in ocorrencias_validas)))
-        )
-
-        cond_baixa_indevida = (
-            (df_tabela["Prazo Ajustado"] == "FORA DO PRAZO") &
-            (df_tabela["Dias Atraso"] == 1) &
-            (df_tabela["Ocorrencias"] == "")
-        )
-
-        # aplicar flags
-        df_tabela["Justificado"] = False
-
-        if usar_justificados:
-            df_tabela.loc[cond_justificado, "Justificado"] = True
-
-        if usar_baixa_indevida:
-            df_tabela.loc[cond_baixa_indevida, "Justificado"] = True
-
-        # no prazo ajustado
-        df_tabela["No Prazo Ajustado"] = (
-            (df_tabela["Prazo Ajustado"] == "NO PRAZO") |
-            (df_tabela["Justificado"])
-        ).astype(int)
-
-        if tipo_visao == "Região":
-            df_tabela["Grupo"] = df_tabela["UF"].map(mapa_regiao)
-        else:
-            df_tabela["Grupo"] = df_tabela["UF"]
-
-        # -----------------------------------
-        # AGRUPAR (USANDO PRAZO AJUSTADO)
-        # -----------------------------------
-
-        df_resumo = (
-            df_tabela.groupby(["Grupo", "Prazo Ajustado"])
-            .size()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-
-        for col in ["NO PRAZO", "FORA DO PRAZO"]:
-            if col not in df_resumo.columns:
-                df_resumo[col] = 0
-
-        # -----------------------------------
-        # MÉTRICAS
-        # -----------------------------------
-
-        df_resumo["Total geral"] = df_resumo["NO PRAZO"] + df_resumo["FORA DO PRAZO"]
-
-        df_resumo["Share"] = (df_resumo["Total geral"] / df_resumo["Total geral"].sum()) * 100
-
-        df_resumo["OTD"] = (df_resumo["NO PRAZO"] / df_resumo["Total geral"]) * 100
-
-        # -----------------------------------
-        # OTD JUSTIFICADO
-        # -----------------------------------
-
-        df_just = (
-            df_tabela.groupby("Grupo")["No Prazo Ajustado"]
-            .sum()
-            .reset_index()
-        )
-
-        df_resumo = df_resumo.merge(df_just, on="Grupo", how="left")
-
-        df_resumo["OTD Justificado"] = (
-            df_resumo["No Prazo Ajustado"] / df_resumo["Total geral"]
-        ) * 100
-
-        # -----------------------------------
-        # ORDENAÇÃO
-        # -----------------------------------
-
-        if tipo_ordem == "Percentual":
-            df_resumo = df_resumo.sort_values(
-                ["OTD", "Total geral"],
-                ascending=[False, False]
-            )
-        else:
-            df_resumo = df_resumo.sort_values(
-                "Total geral",
-                ascending=False
-            )
-
-        # -----------------------------------
-        # TOTAL GERAL
-        # -----------------------------------
-
-        total = pd.DataFrame({
-            "Grupo": ["Total geral"],
-            "NO PRAZO": [df_resumo["NO PRAZO"].sum()],
-            "FORA DO PRAZO": [df_resumo["FORA DO PRAZO"].sum()],
-            "No Prazo Ajustado": [df_resumo["No Prazo Ajustado"].sum()]
-        })
-
-        total["Total geral"] = total["NO PRAZO"] + total["FORA DO PRAZO"]
-        total["Share"] = 100.0
-        total["OTD"] = (total["NO PRAZO"] / total["Total geral"]) * 100
-        total["OTD Justificado"] = (total["No Prazo Ajustado"] / total["Total geral"]) * 100
-
-        df_resumo = pd.concat([df_resumo, total], ignore_index=True)
-
-        # -----------------------------------
-        # FORMATAR
-        # -----------------------------------
-
-        df_resumo["Share"] = df_resumo["Share"].map("{:.2f}%".format)
-        df_resumo["OTD"] = df_resumo["OTD"].map("{:.2f}%".format)
-        df_resumo["OTD Justificado"] = df_resumo["OTD Justificado"].map("{:.2f}%".format)
-
-        df_resumo = df_resumo.rename(columns={
-            "Grupo": "UF" if tipo_visao == "UF" else "Região",
-            "NO PRAZO": "No prazo",
-            "FORA DO PRAZO": "Fora do prazo"
-        })
-
-        primeira_coluna = "UF" if tipo_visao == "UF" else "Região"
-
-        df_resumo = df_resumo[
-            [
-                primeira_coluna,
-                "No prazo",
-                "Fora do prazo",
-                "Total geral",
-                "Share",
-                "OTD",
-                "OTD Justificado"
-            ]
-        ]
-
-        # -----------------------------------
-        # EXIBIR
-        # -----------------------------------
-
-        st.dataframe(
-            df_resumo, 
-            use_container_width=True,
-            hide_index=True
-        )
-
-        with st.expander("🖼️ Imagens complementares"):
-                    imagens = st.file_uploader(
-                        "Importar imagens",
-                        type=["png", "jpg", "jpeg"],
-                        accept_multiple_files=True,
-                        key="imgs_apresentacao"
+                def montar_ocorrencias(grupo):
+                    grupo = grupo.sort_values("Qtd", ascending=False)
+                    return ", ".join(
+                        [f"{row['Ocorrencias']} ({row['Qtd']})" for _, row in grupo.iterrows()]
                     )
 
-                    if imagens:
-                        for i, img in enumerate(imagens, start=1):
-                            st.image(
-                                img,
-                                caption=f"Imagem {i}",
-                                use_container_width=True
-                            )
+                df_ocorrencias = (
+                    df_temp
+                    .groupby("Destino")
+                    .apply(montar_ocorrencias)
+                    .reset_index(name="Ocorrências")
+                )
+
+                # -----------------------------------
+                # QUANTIDADE TOTAL POR UNIDADE
+                # -----------------------------------
+
+                df_qtd = (
+                    df_atraso
+                    .groupby("Destino")
+                    .size()
+                    .reset_index(name="Quantidade")
+                )
+
+                # juntar
+                df_final = df_ocorrencias.merge(df_qtd, on="Destino")
+
+                # -----------------------------------
+                # PERCENTUAL
+                # -----------------------------------
+
+                total_geral = df_final["Quantidade"].sum()
+
+                df_final["Percentual (%)"] = (
+                    df_final["Quantidade"] / total_geral
+                ) * 100
+
+                # -----------------------------------
+                # ORDENAR (maior ofensores primeiro)
+                # -----------------------------------
+
+                df_final = df_final.sort_values(
+                    "Quantidade",
+                    ascending=False
+                )
+
+                # -----------------------------------
+                # LINHA TOTAL
+                # -----------------------------------
+
+                linha_total = pd.DataFrame({
+                    "Destino": ["Total"],
+                    "Ocorrências": [""],
+                    "Quantidade": [total_geral],
+                    "Percentual (%)": [100.0]
+                })
+
+                df_final = pd.concat([df_final, linha_total], ignore_index=True)
+
+                # -----------------------------------
+                # FORMATAÇÃO
+                # -----------------------------------
+
+                df_final["Percentual (%)"] = df_final["Percentual (%)"].round(2)
+
+                # renomear colunas igual imagem
+                df_final = df_final.rename(columns={
+                    "Destino": "Unidade"
+                })
+
+                # -----------------------------------
+                # EXIBIR
+                # -----------------------------------
+
+                st.dataframe(
+                    df_final, 
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                import io
+
+                # -----------------------------------
+                # BASE PARA EXPORT
+                # -----------------------------------
+
+                df_export = df_atraso.copy()
+
+                # selecionar colunas relevantes (ajuste se quiser)
+                colunas_export = [
+                    "Codigo",
+                    "Destino",
+                    "Dt Evento",
+                    "Previsao",
+                    "Dias Atraso",
+                    "Ocorrencias"
+                ]
+
+                colunas_existentes = [c for c in colunas_export if c in df_export.columns]
+
+                df_export = df_export[colunas_existentes]
+
+                # -----------------------------------
+                # GERAR EXCEL EM MEMÓRIA
+                # -----------------------------------
+
+                buffer = io.BytesIO()
+
+                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                    df_export.to_excel(writer, index=False, sheet_name="Atrasos")
+
+                # -----------------------------------
+                # BOTÃO DOWNLOAD
+                # -----------------------------------
+
+                st.download_button(
+                    label="📥 Exportar base de atrasos",
+                    data=buffer.getvalue(),
+                    file_name="base_atrasos.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+            st.subheader("Performance OTD – Visão Detalhada")
+
+            df_tabela = base_unificada.copy()
+
+            # -----------------------------------
+            # SOMENTE ENTREGUES
+            # -----------------------------------
+
+            df_tabela = df_tabela[
+                df_tabela["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
+            ].copy()
+
+            # -----------------------------------
+            # TRATAMENTO DATA
+            # -----------------------------------
+
+            df_tabela["Dt Evento"] = df_tabela["Dt Evento"].astype(str).str.strip()
+
+            df_tabela["Dt Evento"] = pd.to_datetime(
+                df_tabela["Dt Evento"],
+                format="%d/%m/%Y %H:%M:%S",
+                errors="coerce"
+            )
+
+            # -----------------------------------
+            # FILTRO DE DATA
+            # -----------------------------------
+
+            if isinstance(data_evento, tuple) and len(data_evento) == 2:
+                data_ini, data_fim = data_evento
+                data_fim = data_fim + pd.Timedelta(days=1)
+
+                df_tabela = df_tabela[
+                    (df_tabela["Dt Evento"] >= pd.to_datetime(data_ini)) &
+                    (df_tabela["Dt Evento"] < pd.to_datetime(data_fim))
+                ]
+
+            # -----------------------------------
+            # CONTROLES (CHECKBOX + INPUT)
+            # -----------------------------------
+
+            col4, col5, col6 = st.columns([1, 1, 1])
+
+            with col4:
+                usar_justificados = st.checkbox("Atrasos justificados", value=False)
+
+            with col5:
+                usar_baixa_indevida = st.checkbox("Baixas indevidas (1 dia de atraso e sem ocorrência)", value=False)
+
+            with col6:
+                dias_extra = st.number_input("Dias extras", min_value=0, max_value=10, value=0)
+
+            # -----------------------------------
+            # PREPARAÇÃO
+            # -----------------------------------
+
+            df_tabela["Ocorrencias"] = df_tabela["Ocorrencias"].astype(str).str.strip()
+
+            df_tabela["Previsao"] = pd.to_datetime(
+                df_tabela["Previsao"].astype(str).str.strip(),
+                format="%d/%m/%Y",
+                errors="coerce"
+            )
+
+            # aplicar dias extras
+            df_tabela["Previsao Ajustada"] = df_tabela["Previsao"] + pd.to_timedelta(dias_extra, unit="D")
+
+            # calcular atraso
+            df_tabela["Dias Atraso"] = (
+                df_tabela["Dt Evento"].dt.normalize() - df_tabela["Previsao Ajustada"].dt.normalize()
+            ).dt.days
+
+            # novo prazo
+            df_tabela["Prazo Ajustado"] = df_tabela["Dias Atraso"].apply(
+                lambda x: "NO PRAZO" if x <= 0 else "FORA DO PRAZO"
+            )
+
+            # -----------------------------------
+            # REGRAS
+            # -----------------------------------
+
+            ocorrencias_validas = ["DEST. AUSENTE", "PROB. ENDEREÇO"]
+
+            cond_justificado = (
+                (df_tabela["Prazo Ajustado"] == "FORA DO PRAZO") &
+                (df_tabela["Ocorrencias"].apply(lambda x: any(oc in x for oc in ocorrencias_validas)))
+            )
+
+            cond_baixa_indevida = (
+                (df_tabela["Prazo Ajustado"] == "FORA DO PRAZO") &
+                (df_tabela["Dias Atraso"] == 1) &
+                (df_tabela["Ocorrencias"] == "")
+            )
+
+            # aplicar flags
+            df_tabela["Justificado"] = False
+
+            if usar_justificados:
+                df_tabela.loc[cond_justificado, "Justificado"] = True
+
+            if usar_baixa_indevida:
+                df_tabela.loc[cond_baixa_indevida, "Justificado"] = True
+
+            # no prazo ajustado
+            df_tabela["No Prazo Ajustado"] = (
+                (df_tabela["Prazo Ajustado"] == "NO PRAZO") |
+                (df_tabela["Justificado"])
+            ).astype(int)
+
+            if tipo_visao == "Região":
+                df_tabela["Grupo"] = df_tabela["UF"].map(mapa_regiao)
+            else:
+                df_tabela["Grupo"] = df_tabela["UF"]
+
+            # -----------------------------------
+            # AGRUPAR (USANDO PRAZO AJUSTADO)
+            # -----------------------------------
+
+            df_resumo = (
+                df_tabela.groupby(["Grupo", "Prazo Ajustado"])
+                .size()
+                .unstack(fill_value=0)
+                .reset_index()
+            )
+
+            for col in ["NO PRAZO", "FORA DO PRAZO"]:
+                if col not in df_resumo.columns:
+                    df_resumo[col] = 0
+
+            # -----------------------------------
+            # MÉTRICAS
+            # -----------------------------------
+
+            df_resumo["Total geral"] = df_resumo["NO PRAZO"] + df_resumo["FORA DO PRAZO"]
+
+            df_resumo["Share"] = (df_resumo["Total geral"] / df_resumo["Total geral"].sum()) * 100
+
+            df_resumo["OTD"] = (df_resumo["NO PRAZO"] / df_resumo["Total geral"]) * 100
+
+            # -----------------------------------
+            # OTD JUSTIFICADO
+            # -----------------------------------
+
+            df_just = (
+                df_tabela.groupby("Grupo")["No Prazo Ajustado"]
+                .sum()
+                .reset_index()
+            )
+
+            df_resumo = df_resumo.merge(df_just, on="Grupo", how="left")
+
+            df_resumo["OTD Justificado"] = (
+                df_resumo["No Prazo Ajustado"] / df_resumo["Total geral"]
+            ) * 100
+
+            # -----------------------------------
+            # ORDENAÇÃO
+            # -----------------------------------
+
+            if tipo_ordem == "Percentual":
+                df_resumo = df_resumo.sort_values(
+                    ["OTD", "Total geral"],
+                    ascending=[False, False]
+                )
+            else:
+                df_resumo = df_resumo.sort_values(
+                    "Total geral",
+                    ascending=False
+                )
+
+            # -----------------------------------
+            # TOTAL GERAL
+            # -----------------------------------
+
+            total = pd.DataFrame({
+                "Grupo": ["Total geral"],
+                "NO PRAZO": [df_resumo["NO PRAZO"].sum()],
+                "FORA DO PRAZO": [df_resumo["FORA DO PRAZO"].sum()],
+                "No Prazo Ajustado": [df_resumo["No Prazo Ajustado"].sum()]
+            })
+
+            total["Total geral"] = total["NO PRAZO"] + total["FORA DO PRAZO"]
+            total["Share"] = 100.0
+            total["OTD"] = (total["NO PRAZO"] / total["Total geral"]) * 100
+            total["OTD Justificado"] = (total["No Prazo Ajustado"] / total["Total geral"]) * 100
+
+            df_resumo = pd.concat([df_resumo, total], ignore_index=True)
+
+            # -----------------------------------
+            # FORMATAR
+            # -----------------------------------
+
+            df_resumo["Share"] = df_resumo["Share"].map("{:.2f}%".format)
+            df_resumo["OTD"] = df_resumo["OTD"].map("{:.2f}%".format)
+            df_resumo["OTD Justificado"] = df_resumo["OTD Justificado"].map("{:.2f}%".format)
+
+            df_resumo = df_resumo.rename(columns={
+                "Grupo": "UF" if tipo_visao == "UF" else "Região",
+                "NO PRAZO": "No prazo",
+                "FORA DO PRAZO": "Fora do prazo"
+            })
+
+            primeira_coluna = "UF" if tipo_visao == "UF" else "Região"
+
+            df_resumo = df_resumo[
+                [
+                    primeira_coluna,
+                    "No prazo",
+                    "Fora do prazo",
+                    "Total geral",
+                    "Share",
+                    "OTD",
+                    "OTD Justificado"
+                ]
+            ]
+
+            # -----------------------------------
+            # EXIBIR
+            # -----------------------------------
+
+            st.dataframe(
+                df_resumo, 
+                use_container_width=True,
+                hide_index=True
+            )
+
+            with st.expander("🖼️ Imagens complementares"):
+                        imagens = st.file_uploader(
+                            "Importar imagens",
+                            type=["png", "jpg", "jpeg"],
+                            accept_multiple_files=True,
+                            key="imgs_apresentacao"
+                        )
+
+                        if imagens:
+                            for i, img in enumerate(imagens, start=1):
+                                st.image(
+                                    img,
+                                    caption=f"Imagem {i}",
+                                    use_container_width=True
+                                )
+
+    elif tipo_pedido == "Pedidos não concluídos (devoluções, sinistros, etc.)":
+
+        df_encerrados = df[
+            (df["Prazo"].isna()) |
+            (df["Prazo"].astype(str).str.strip() == "")
+        ].copy()
+
+        if df_encerrados.empty:
+
+            st.info("Não a pedidos não entregues.")
+
+        else:
+
+            with st.sidebar:
+
+                st.markdown("### 📦 Base de pedidos não entregues")
+
+                if df_encerrados is not None and not df_encerrados.empty:
+                    st.metric(
+                        label="Total de pedidos",
+                        value=len(df_encerrados)
+                    )
+                else:
+                    st.metric(
+                        label="Total de pedidos",
+                        value="—"
+                    )
+
+            if df_encerrados is not None and not df_encerrados.empty:
+                excel_bytes = exportar_excel(df_encerrados)
+
+                st.sidebar.download_button(
+                    label="⬇️ Exportar base (.xlsx)",
+                    data=excel_bytes,
+                    file_name="df_encerrados.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.sidebar.download_button(
+                    label="⬇️ Exportar base (.xlsx)",
+                    data=b"",
+                    disabled=True
+                )
+
+            status_counts = df_encerrados["Status"].value_counts().reset_index()
+            status_counts.columns = ["Status", "Quantidade"]
+
+            st.subheader("Pedidos não entregues (Devoluções, Sinistros, entre outros)")
+
+            st.write(f"Total de pedidos: {len(df_encerrados):,}".replace(",", "."))
+
+            max_val = status_counts["Quantidade"].max()
+
+            base_st = alt.Chart(status_counts).encode(
+                y=alt.Y(
+                    "Status:N",
+                    sort="-x",
+                    title="Status"  # 👈 nome das categorias (opcional)
+                ),
+                x=alt.X(
+                    "Quantidade:Q",
+                    title="Quantidade de pedidos",  # 👈 título do eixo (fica embaixo)
+                    scale=alt.Scale(domain=[0, max_val * 1.15])
+                )
+            )
+
+            bars = base_st.mark_bar()
+
+            text = base_st.mark_text(
+                align="left",
+                dx=8,
+                color="white"
+            ).encode(
+                text=alt.Text("Quantidade:Q", format=",.0f")
+            )
+
+            chart = bars + text
+
+            st.altair_chart(chart, use_container_width=True)
 
 else:
     st.info("Importe planilhas no menu lateral para visualizar o dashboard.")
