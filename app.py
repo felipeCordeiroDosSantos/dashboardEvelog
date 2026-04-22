@@ -213,6 +213,7 @@ def carregar_planilha(file):
                 "ENDERECO NAO LOCALIZADO": "PROB. ENDEREÇO",
                 "MUDOU-SE": "PROB. ENDEREÇO",
                 "NUMERO NAO LOCALIZADO": "PROB. ENDEREÇO",
+                "CEP ERRADO": "PROB. ENDEREÇO",
 
                 # Agência
                 "DESTINATARIO SOLICITOU RETIRAR NA UNIDADE": "AG. RETIRADA AGÊNCIA",
@@ -420,10 +421,10 @@ if base_unificada is not None:
     
     tipo_pedido = st.segmented_control(
         "Tipo de pedidos",
-        ["Pedidos Em aberto (Vencidos, A vencer)", "Pedidos Entregues (Performance OTD)", "Pedidos não concluídos (devoluções, sinistros, etc.)"]
+        ["Pedidos Em Aberto", "Pedidos Entregues", "Pedidos Não Entregues"]
     )
 
-    if tipo_pedido == "Pedidos Em aberto (Vencidos, A vencer)":
+    if tipo_pedido == "Pedidos Em Aberto":
 
         # -----------------------------------
         # BASE INICIAL
@@ -441,7 +442,7 @@ if base_unificada is not None:
 
         else:
 
-            st.subheader("Pedidos em aberto")
+            st.subheader("Pedidos Em Aberto")
 
             with st.sidebar:
 
@@ -483,23 +484,23 @@ if base_unificada is not None:
             with col1:
                 tipo = st.radio(
                     "Visualização",
-                    ["Vencidos", "A vencer"],
+                    ["Em atraso", "No prazo"],
                     horizontal=True
                 )
 
             with col2:
-                if tipo == "Vencidos":
+                if tipo == "Em atraso":
                     total = df_abertos["Prazo"].str.contains("ATRASADO", na=False).sum()
-                    st.metric("Total de pedidos vencidos", total)
+                    st.metric("Total de pedidos em atraso", total)
                 else:
                     total = df_abertos["Prazo"].str.contains("FALTAM", na=False).sum()
-                    st.metric("Total de pedidos a vencer", total)
+                    st.metric("Total de pedidos no prazo", total)
 
             # -----------------------------------
             # BASE ORIGINAL
             # -----------------------------------
 
-            if tipo == "Vencidos":
+            if tipo == "Em atraso":
                 df_base_original = df_abertos[
                     df_abertos["Prazo"].str.contains("ATRASADO", na=False)
                 ].copy()
@@ -600,7 +601,7 @@ if base_unificada is not None:
                 for d in dias_valores:
                     d_int = int(d)
 
-                    if tipo == "Vencidos":
+                    if tipo == "Em atraso":
                         label = f"{d_int} dia{'s' if d_int > 1 else ''} vencido"
                     else:
                         label = f"{d_int} dia{'s' if d_int > 1 else ''} para vencer"
@@ -624,11 +625,12 @@ if base_unificada is not None:
                 # -------------------------------
                 # CONVERTER DEFAULT (número -> label)
                 # -------------------------------
-                default_labels = [
-                    mapa_valor_label[d]
-                    for d in st.session_state.dias
-                    if d in mapa_valor_label
-                ]
+                if "dias_widget" not in st.session_state:
+                    st.session_state["dias_widget"] = [
+                        mapa_valor_label[d]
+                        for d in st.session_state.dias
+                        if d in mapa_valor_label
+                    ]
 
                 # -------------------------------
                 # MULTISELECT (COM KEY!)
@@ -636,7 +638,6 @@ if base_unificada is not None:
                 selecionados_labels = st.multiselect(
                     "Dias",
                     opcoes_labels,
-                    default=default_labels,
                     key="dias_widget"
                 )
 
@@ -740,6 +741,9 @@ if base_unificada is not None:
                 st.session_state.status = []
                 st.session_state.ocorrencias = []
                 st.session_state.dias_sem_mov = []
+
+                st.session_state["dias_widget"] = []
+                
             st.button("Limpar filtros", on_click=limpar_filtros)
 
             # -----------------------------------
@@ -768,23 +772,23 @@ if base_unificada is not None:
             if not grafico.empty:
 
                 # DIAS
-                if tipo == "Vencidos":
+                if tipo == "Em atraso":
 
-                    tituloDias = "Distribuição por dias (Pedidos vencidos)"
-                    tituloStatus = "Status (Pedidos vencidos)"
-                    tituloOcorrencias = "Ocorrencias (Pedidos vencidos)"
-                    tituloDiasSemMov = "Dias sem movimentação (Pedidos vencidos)"
-                    tituloPedidosFiltrados = "Pedidos filtrados (Pedidos vencidos)"
+                    tituloDias = "Distribuição de Pedidos em Atraso por Dias de Atraso"
+                    tituloStatus = "Status (Pedidos em atraso)"
+                    tituloOcorrencias = "Ocorrencias (Pedidos em atraso)"
+                    tituloDiasSemMov = "Dias sem movimentação (Pedidos em atraso)"
+                    tituloPedidosFiltrados = "Pedidos filtrados (Pedidos em atraso)"
 
-                    eixo_x_titulo = "Dias vencidos"
+                    eixo_x_titulo = "Dias em Atraso"
                 else:
-                    tituloDias = "Distribuição por dias (Pedidos a vencer)"
-                    tituloStatus = "Status (Pedidos a vencer)"
-                    tituloOcorrencias = "Ocorrencias (Pedidos a vencer)"
-                    tituloDiasSemMov = "Dias sem movimentação (Pedidos a vencer)"
-                    tituloPedidosFiltrados = "Pedidos filtrados (Pedidos a vencer)"
+                    tituloDias = "Distribuição de Pedidos no Prazo por Dias Restantes"
+                    tituloStatus = "Status (Pedidos no Prazo)"
+                    tituloOcorrencias = "Ocorrencias (Pedidos no Prazo)"
+                    tituloDiasSemMov = "Dias sem movimentação (Pedidos no Prazo)"
+                    tituloPedidosFiltrados = "Pedidos filtrados (Pedidos no Prazo)"
 
-                    eixo_x_titulo = "Dias a vencer"
+                    eixo_x_titulo = "Dias até o Vencimento"
 
                 st.subheader(tituloDias)
 
@@ -940,7 +944,7 @@ if base_unificada is not None:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    elif tipo_pedido == "Pedidos Entregues (Performance OTD)":
+    elif tipo_pedido == "Pedidos Entregues":
 
         from datetime import timedelta
 
@@ -985,7 +989,7 @@ if base_unificada is not None:
             # FILTROS
             # -----------------------------------
 
-            col1, col2, col3 = st.columns([1,1,1])
+            col1, col2, col3, col4 = st.columns([1,1,1,1])
 
             with col1:
                 data_evento = st.date_input(
@@ -1007,6 +1011,12 @@ if base_unificada is not None:
                     "Visualização",
                     ["UF", "Região"],
                     horizontal=True
+                )
+
+            with col4:
+                st.metric(
+                    label="Total de pedidos",
+                    value=len(df_perf)
                 )
 
             # -----------------------------------
@@ -1803,15 +1813,15 @@ if base_unificada is not None:
             # CONTROLES (CHECKBOX + INPUT)
             # -----------------------------------
 
-            col4, col5, col6 = st.columns([1, 1, 1])
-
-            with col4:
-                usar_justificados = st.checkbox("Atrasos justificados", value=False)
+            col5, col6, col7 = st.columns([1, 1, 1])
 
             with col5:
-                usar_baixa_indevida = st.checkbox("Baixas indevidas (1 dia de atraso e sem ocorrência)", value=False)
+                usar_justificados = st.checkbox("Atrasos justificados", value=True)
 
             with col6:
+                usar_baixa_indevida = st.checkbox("Baixas indevidas (1 dia de atraso e sem ocorrência)", value=False)
+
+            with col7:
                 dias_extra = st.number_input("Dias extras", min_value=0, max_value=10, value=0)
 
             # -----------------------------------
@@ -2004,7 +2014,7 @@ if base_unificada is not None:
                                     use_container_width=True
                                 )
 
-    elif tipo_pedido == "Pedidos não concluídos (devoluções, sinistros, etc.)":
+    elif tipo_pedido == "Pedidos Não Entregues":
 
         df_encerrados = df[
             (df["Prazo"].isna()) |
@@ -2048,12 +2058,46 @@ if base_unificada is not None:
                     disabled=True
                 )
 
-            status_counts = df_encerrados["Status"].value_counts().reset_index()
+            df_plot = df_encerrados.copy()
+
+            # cria uma nova coluna para exibição no gráfico
+            df_plot["Status_plot"] = df_plot["Status"]
+
+            # onde for CUSTODIA, substitui pelo valor de Ocorrencias
+            df_plot.loc[
+                df_plot["Status"] == "CUSTODIA", 
+                "Status_plot"
+            ] = df_plot["Ocorrencias"]
+
+            # opções disponíveis
+            status_opcoes = sorted(df_plot["Status_plot"].dropna().unique())
+
+            st.subheader("Pedidos Não Entregues")
+
+            col_form, _, col_metric = st.columns([1, 2, 1])
+
+            with col_form:
+                status_selecionados = st.multiselect(
+                    "Status",
+                    options=status_opcoes,
+                )
+
+            with col_metric:
+                st.metric(
+                    label="Total de pedidos",
+                    value=f"{len(df_encerrados):,}".replace(",", ".")
+                )
+
+            if status_selecionados:
+                df_filtrado = df_plot[df_plot["Status_plot"].isin(status_selecionados)]
+            else:
+                df_filtrado = df_plot.copy()
+
+            # agora conta usando a nova coluna
+            status_counts = df_filtrado["Status_plot"].value_counts().reset_index()
             status_counts.columns = ["Status", "Quantidade"]
 
-            st.subheader("Pedidos não entregues (Devoluções, Sinistros, entre outros)")
-
-            st.write(f"Total de pedidos: {len(df_encerrados):,}".replace(",", "."))
+            st.subheader("Status")
 
             max_val = status_counts["Quantidade"].max()
 
@@ -2061,12 +2105,12 @@ if base_unificada is not None:
                 y=alt.Y(
                     "Status:N",
                     sort="-x",
-                    title="Status"  # 👈 nome das categorias (opcional)
+                    title="Status"
                 ),
                 x=alt.X(
                     "Quantidade:Q",
-                    title="Quantidade de pedidos",  # 👈 título do eixo (fica embaixo)
-                    scale=alt.Scale(domain=[0, max_val * 1.15])
+                    title="Quantidade de pedidos",
+                    axis=alt.Axis(tickMinStep=1)
                 )
             )
 
@@ -2084,6 +2128,28 @@ if base_unificada is not None:
 
             st.altair_chart(chart, use_container_width=True)
 
+            st.dataframe(
+                df_filtrado,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # botão abaixo da tabela
+            if not df_filtrado.empty:
+                excel_filtrado = exportar_excel(df_filtrado)
+
+                st.download_button(
+                    label="⬇️ Exportar filtrados (.xlsx)",
+                    data=excel_filtrado,
+                    file_name="pedidos_filtrados.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.download_button(
+                    label="⬇️ Exportar filtrados (.xlsx)",
+                    data=b"",
+                    disabled=True
+                )
 else:
     st.info("Importe planilhas no menu lateral para visualizar o dashboard.")
     
