@@ -914,7 +914,7 @@ if base_unificada is not None:
                     hide_index=True
                 )
 
-            botao_exportar_excel(df_base, nome_arquivo = f"base_em_aberto_{sufixo_arquivo}.xlsx", usar_sidebar=False)
+                botao_exportar_excel(df_base, nome_arquivo = f"base_em_aberto_{sufixo_arquivo}.xlsx", usar_sidebar=False)
 
     elif tipo_pedido == "Pedidos Entregues":
 
