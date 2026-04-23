@@ -21,6 +21,26 @@ def normalizar_colunas(df):
     df.columns = novas_colunas
     return df
 
+def botao_exportar_excel(df, nome_arquivo="base_unificada.xlsx", usar_sidebar=True):
+
+    container = st.sidebar if usar_sidebar else st
+
+    if df is not None and not df.empty:
+        excel_bytes = exportar_excel(df)
+
+        container.download_button(
+            label="⬇️ Exportar base (.xlsx)",
+            data=excel_bytes,
+            file_name=nome_arquivo,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        container.download_button(
+            label="⬇️ Exportar base (.xlsx)",
+            data=b"",
+            disabled=True
+        )
+
 # -------------------------------------------
 # CONFIGURAÇÃO DA PÁGINA
 # -------------------------------------------
@@ -311,7 +331,7 @@ if uploaded_files:
     base_unificada = pd.concat(dfs, ignore_index=True)
     st.sidebar.success(f"{len(uploaded_files)} planilha(s) carregada(s)")
 
-st.sidebar.markdown("---")
+st.sidebar.divider()
 
 mapa_regiao = {
     # Norte
@@ -349,23 +369,7 @@ with st.sidebar:
             value="—"
         )
 
-if base_unificada is not None and not base_unificada.empty:
-    excel_bytes = exportar_excel(base_unificada)
-
-    st.sidebar.download_button(
-        label="⬇️ Exportar base (.xlsx)",
-        data=excel_bytes,
-        file_name="base_unificada.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-else:
-    st.sidebar.download_button(
-        label="⬇️ Exportar base (.xlsx)",
-        data=b"",
-        disabled=True
-    )
-
-st.sidebar.markdown("---")
+botao_exportar_excel(base_unificada, nome_arquivo="base_completa.xlsx")
 
 # -------------------------------------------
 # FILTRO GLOBAL - DATA DE EMISSÃO
@@ -377,7 +381,7 @@ if base_unificada is not None and not base_unificada.empty:
 
     base_unificada["Dt Emissao"] = pd.to_datetime(
         base_unificada["Dt Emissao"],
-        dayfirst=True,   # 👈 ESSENCIAL pro padrão BR
+        dayfirst=True,
         errors="coerce"
     )
 
@@ -386,13 +390,17 @@ if base_unificada is not None and not base_unificada.empty:
     min_emissao = df_datas_validas["Dt Emissao"].min().date()
     max_emissao = df_datas_validas["Dt Emissao"].max().date()
 
-    data_emissao = st.sidebar.date_input(
-        "📅 Período de emissão",
-        value=(min_emissao, max_emissao),
-        min_value=min_emissao,
-        max_value=max_emissao,
-        key="filtro_global_emissao"
-    )
+    # 🔲 Criação das colunas
+    col_filtro, _, col_metric1 = st.columns([1, 2, 1])
+
+    with col_filtro:
+        data_emissao = st.date_input(
+            "📅 Período de emissão dos pedidos",
+            value=(min_emissao, max_emissao),
+            min_value=min_emissao,
+            max_value=max_emissao,
+            key="filtro_global_emissao"
+        )
 
     if isinstance(data_emissao, tuple) and len(data_emissao) == 2:
         data_ini, data_fim = data_emissao
@@ -402,15 +410,14 @@ if base_unificada is not None and not base_unificada.empty:
             (base_unificada["Dt Emissao"].dt.date >= data_ini) &
             (base_unificada["Dt Emissao"].dt.date <= data_fim)
         ]
-    
+
     qtd_pedidos = len(base_unificada)
 
-    st.sidebar.metric(
-        label="Total de pedidos filtrados",
-        value=f"{qtd_pedidos:,}".replace(",", ".")
-    )
-
-    st.sidebar.markdown("---")
+    with col_metric1:
+        st.metric(
+            label="Pedidos no período",
+            value=f"{qtd_pedidos:,}".replace(",", ".")
+        )
 
 # -------------------------------------------
 # DASHBOARD
@@ -443,37 +450,6 @@ if base_unificada is not None:
         else:
 
             st.subheader("Pedidos Em Aberto")
-
-            with st.sidebar:
-
-                st.markdown("### 📦 Base de pedidos em aberto")
-
-                if df_abertos is not None and not df_abertos.empty:
-                    st.metric(
-                        label="Total de pedidos",
-                        value=len(df_abertos)
-                    )
-                else:
-                    st.metric(
-                        label="Total de pedidos",
-                        value="—"
-                    )
-
-            if df_abertos is not None and not df_abertos.empty:
-                excel_bytes = exportar_excel(df_abertos)
-
-                st.sidebar.download_button(
-                    label="⬇️ Exportar base (.xlsx)",
-                    data=excel_bytes,
-                    file_name="df_abertos.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.sidebar.download_button(
-                    label="⬇️ Exportar base (.xlsx)",
-                    data=b"",
-                    disabled=True
-                )
 
             # -----------------------------------
             # TOPO (RADIO + MÉTRICA)
@@ -602,14 +578,21 @@ if base_unificada is not None:
                     d_int = int(d)
 
                     if tipo == "Em atraso":
-                        label = f"{d_int} dia{'s' if d_int > 1 else ''} vencido"
+                        if d_int == 1:
+                            label = "1 dia em atraso"
+                        else:
+                            label = f"{d_int} dias em atraso"
                     else:
-                        label = f"{d_int} dia{'s' if d_int > 1 else ''} para vencer"
+                        if d_int == 0:
+                            label = "Vence hoje"
+                        elif d_int == 1:
+                            label = "1 dia para vencer"
+                        else:
+                            label = f"{d_int} dias para vencer"
 
                     mapa_valor_label[d] = label
 
                 mapa_label_valor = {v: k for k, v in mapa_valor_label.items()}
-
                 opcoes_labels = list(mapa_valor_label.values())
 
                 # -------------------------------
@@ -635,8 +618,10 @@ if base_unificada is not None:
                 # -------------------------------
                 # MULTISELECT (COM KEY!)
                 # -------------------------------
+                label_dias = "Dias em atraso" if tipo == "Em atraso" else "Dias até o vencimento"
+
                 selecionados_labels = st.multiselect(
-                    "Dias",
+                    label_dias,
                     opcoes_labels,
                     key="dias_widget"
                 )
@@ -781,6 +766,9 @@ if base_unificada is not None:
                     tituloPedidosFiltrados = "Pedidos filtrados (Pedidos em atraso)"
 
                     eixo_x_titulo = "Dias em Atraso"
+
+                    sufixo_arquivo = "em_atraso"
+
                 else:
                     tituloDias = "Distribuição de Pedidos no Prazo por Dias Restantes"
                     tituloStatus = "Status (Pedidos no Prazo)"
@@ -789,6 +777,8 @@ if base_unificada is not None:
                     tituloPedidosFiltrados = "Pedidos filtrados (Pedidos no Prazo)"
 
                     eixo_x_titulo = "Dias até o Vencimento"
+
+                    sufixo_arquivo = "no_prazo"
 
                 st.subheader(tituloDias)
 
@@ -913,36 +903,18 @@ if base_unificada is not None:
             # TABELA FINAL
             # -----------------------------------
 
-            st.subheader(tituloPedidosFiltrados)
+            if not  df_base.empty:
+                st.subheader(tituloPedidosFiltrados)
 
-            st.write(f"Total: {len(df_base)}")
+                st.write(f"Total: {len(df_base)}")
 
-            st.dataframe(
-                df_base,
-                use_container_width=True,
-                hide_index=True
-            )
+                st.dataframe(
+                    df_base,
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-            import io
-
-            # -----------------------------------
-            # EXPORTAR PARA EXCEL
-            # -----------------------------------
-
-            def gerar_excel(df):
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                    df.to_excel(writer, index=False, sheet_name="Pedidos")
-                return output.getvalue()
-
-            excel_data = gerar_excel(df_base)
-
-            st.download_button(
-                label="📥 Exportar para Excel",
-                data=excel_data,
-                file_name="pedidos_filtrados.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            botao_exportar_excel(df_base, nome_arquivo = f"base_em_aberto_{sufixo_arquivo}.xlsx", usar_sidebar=False)
 
     elif tipo_pedido == "Pedidos Entregues":
 
@@ -1730,15 +1702,8 @@ if base_unificada is not None:
                     hide_index=True
                 )
 
-                import io
-
-                # -----------------------------------
-                # BASE PARA EXPORT
-                # -----------------------------------
-
                 df_export = df_atraso.copy()
 
-                # selecionar colunas relevantes (ajuste se quiser)
                 colunas_export = [
                     "Codigo",
                     "Destino",
@@ -1752,25 +1717,7 @@ if base_unificada is not None:
 
                 df_export = df_export[colunas_existentes]
 
-                # -----------------------------------
-                # GERAR EXCEL EM MEMÓRIA
-                # -----------------------------------
-
-                buffer = io.BytesIO()
-
-                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                    df_export.to_excel(writer, index=False, sheet_name="Atrasos")
-
-                # -----------------------------------
-                # BOTÃO DOWNLOAD
-                # -----------------------------------
-
-                st.download_button(
-                    label="📥 Exportar base de atrasos",
-                    data=buffer.getvalue(),
-                    file_name="base_atrasos.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                botao_exportar_excel(df_export, nome_arquivo="base_atrasos.xlsx", usar_sidebar=False)
 
             st.subheader("Performance OTD – Visão Detalhada")
 
@@ -1813,7 +1760,7 @@ if base_unificada is not None:
             # CONTROLES (CHECKBOX + INPUT)
             # -----------------------------------
 
-            col5, col6, col7 = st.columns([1, 1, 1])
+            col5, col6, _, col7 = st.columns([1, 1, 1, 1])
 
             with col5:
                 usar_justificados = st.checkbox("Atrasos justificados", value=True)
@@ -2023,40 +1970,9 @@ if base_unificada is not None:
 
         if df_encerrados.empty:
 
-            st.info("Não a pedidos não entregues.")
+            st.info("Não há pedidos não entregues.")
 
         else:
-
-            with st.sidebar:
-
-                st.markdown("### 📦 Base de pedidos não entregues")
-
-                if df_encerrados is not None and not df_encerrados.empty:
-                    st.metric(
-                        label="Total de pedidos",
-                        value=len(df_encerrados)
-                    )
-                else:
-                    st.metric(
-                        label="Total de pedidos",
-                        value="—"
-                    )
-
-            if df_encerrados is not None and not df_encerrados.empty:
-                excel_bytes = exportar_excel(df_encerrados)
-
-                st.sidebar.download_button(
-                    label="⬇️ Exportar base (.xlsx)",
-                    data=excel_bytes,
-                    file_name="df_encerrados.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.sidebar.download_button(
-                    label="⬇️ Exportar base (.xlsx)",
-                    data=b"",
-                    disabled=True
-                )
 
             df_plot = df_encerrados.copy()
 
@@ -2134,22 +2050,7 @@ if base_unificada is not None:
                 hide_index=True
             )
 
-            # botão abaixo da tabela
-            if not df_filtrado.empty:
-                excel_filtrado = exportar_excel(df_filtrado)
-
-                st.download_button(
-                    label="⬇️ Exportar filtrados (.xlsx)",
-                    data=excel_filtrado,
-                    file_name="pedidos_filtrados.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.download_button(
-                    label="⬇️ Exportar filtrados (.xlsx)",
-                    data=b"",
-                    disabled=True
-                )
+            botao_exportar_excel(df_filtrado, nome_arquivo="base_nao_entregues.xlsx", usar_sidebar=False)
 else:
     st.info("Importe planilhas no menu lateral para visualizar o dashboard.")
     
