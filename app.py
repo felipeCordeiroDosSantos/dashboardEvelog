@@ -985,12 +985,6 @@ if base_unificada is not None:
                     horizontal=True
                 )
 
-            with col4:
-                st.metric(
-                    label="Total de pedidos",
-                    value=len(df_perf)
-                )
-
             # -----------------------------------
             # FILTRO DE DATA (🔥 CORRETO)
             # -----------------------------------
@@ -1006,6 +1000,12 @@ if base_unificada is not None:
                     (df_perf["Dt Evento"] >= pd.to_datetime(data_ini)) &
                     (df_perf["Dt Evento"] < pd.to_datetime(data_fim))
                 ]
+            
+            with col4:
+                st.metric(
+                    label="Total de pedidos",
+                    value=len(df_perf)
+                )
 
             # -----------------------------------
             # AGRUPAMENTO
@@ -1235,7 +1235,7 @@ if base_unificada is not None:
                     values="Quantidade",
                     hole=0.4
                 )
-                st.plotly_chart(fig1, use_container_width=True)
+                st.plotly_chart(fig1, use_container_width=True, key="grafico_1")
 
             with col2:
                 st.markdown("##### OTD Justificado")
@@ -1246,7 +1246,7 @@ if base_unificada is not None:
                     values="Quantidade",
                     hole=0.4
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, use_container_width=True, key="grafico_2")
 
             st.subheader("Evolução do OTD")
 
@@ -1443,65 +1443,68 @@ if base_unificada is not None:
 
             total_atrasados = df_dist["Pedidos"].sum()
 
-            st.subheader("Distribuição de atrasos (dias)")
-            st.caption(f"Total de pedidos em atraso: {total_atrasados}")
+            if df_dist.empty:
 
-            # -----------------------------------
-            # ORDENAR POR DIAS (CORRETO)
-            # -----------------------------------
+                st.info("Não há atrasos na base.")
+                
+            else:
+                st.subheader("Distribuição de atrasos (dias)")
+                st.caption(f"Total de pedidos em atraso: {total_atrasados}")
 
-            df_dist = df_dist.sort_values("Dias Atraso")
+                # -----------------------------------
+                # ORDENAR POR DIAS (CORRETO)
+                # -----------------------------------
 
-            # criar versão string só pra exibir
-            df_dist["Dias_str"] = df_dist["Dias Atraso"].astype(int).astype(str)
+                df_dist = df_dist.sort_values("Dias Atraso")
 
-            ordem = df_dist["Dias_str"].tolist()
+                # criar versão string só pra exibir
+                df_dist["Dias_str"] = df_dist["Dias Atraso"].astype(int).astype(str)
 
-            base = alt.Chart(df_dist)
+                ordem = df_dist["Dias_str"].tolist()
 
-            # -----------------------------------
-            # BARRAS
-            # -----------------------------------
+                base = alt.Chart(df_dist)
 
-            bars = base.mark_bar(
-                color="#6baed6"
-            ).encode(
-                x=alt.X(
-                    "Dias_str:N",
-                    sort=ordem,
-                    title="Dias de atraso",
-                    axis=alt.Axis(labelAngle=0)  # 🔥 aqui
-                ),
-                y=alt.Y(
-                    "Pedidos:Q",
-                    title="Quantidade"
+                # -----------------------------------
+                # BARRAS
+                # -----------------------------------
+
+                bars = base.mark_bar(
+                    color="#6baed6"
+                ).encode(
+                    x=alt.X(
+                        "Dias_str:N",
+                        sort=ordem,
+                        title="Dias de atraso",
+                        axis=alt.Axis(labelAngle=0)  # 🔥 aqui
+                    ),
+                    y=alt.Y(
+                        "Pedidos:Q",
+                        title="Quantidade"
+                    )
                 )
-            )
 
-            text = base.mark_text(
-                dy=-8,
-                color="white"
-            ).encode(
-                x=alt.X(
-                    "Dias_str:N",
-                    sort=ordem,
-                    axis=alt.Axis(labelAngle=0)  # 🔥 aqui também
-                ),
-                y="Pedidos:Q",
-                text="Pedidos:Q"
-            )
+                text = base.mark_text(
+                    dy=-8,
+                    color="white"
+                ).encode(
+                    x=alt.X(
+                        "Dias_str:N",
+                        sort=ordem,
+                        axis=alt.Axis(labelAngle=0)  # 🔥 aqui também
+                    ),
+                    y="Pedidos:Q",
+                    text="Pedidos:Q"
+                )
 
-            # -----------------------------------
-            # FINAL
-            # -----------------------------------
+                # -----------------------------------
+                # FINAL
+                # -----------------------------------
 
-            chart = (bars + text).properties(
-                height=400
-            )
+                chart = (bars + text).properties(
+                    height=400
+                )
 
-            st.altair_chart(chart, use_container_width=True)
-
-            st.subheader("Ocorrências - Pedidos em Atraso")
+                st.altair_chart(chart, use_container_width=True)
 
             # -----------------------------------
             # FILTRAR SOMENTE ATRASADOS COM OCORRÊNCIA
@@ -1523,59 +1526,66 @@ if base_unificada is not None:
                 .reset_index(name="Quantidade")
             )
 
-            # -----------------------------------
-            # TOTAL
-            # -----------------------------------
+            if df_ocorrencias.empty:
 
-            total_ocorrencias = df_ocorrencias["Quantidade"].sum()
+                st.info("Não há ocorrências na base.")
+                
+            else:
+                # -----------------------------------
+                # TOTAL
+                # -----------------------------------
 
-            # -----------------------------------
-            # PERCENTUAL
-            # -----------------------------------
+                total_ocorrencias = df_ocorrencias["Quantidade"].sum()
 
-            df_ocorrencias["Percentual (%)"] = (
-                df_ocorrencias["Quantidade"] / total_ocorrencias
-            ) * 100
+                # -----------------------------------
+                # PERCENTUAL
+                # -----------------------------------
 
-            # -----------------------------------
-            # ORDENAR (maior para menor)
-            # -----------------------------------
+                df_ocorrencias["Percentual (%)"] = (
+                    df_ocorrencias["Quantidade"] / total_ocorrencias
+                ) * 100
 
-            df_ocorrencias = df_ocorrencias.sort_values(
-                "Quantidade",
-                ascending=False
-            )
+                # -----------------------------------
+                # ORDENAR (maior para menor)
+                # -----------------------------------
 
-            # -----------------------------------
-            # LINHA TOTAL
-            # -----------------------------------
+                df_ocorrencias = df_ocorrencias.sort_values(
+                    "Quantidade",
+                    ascending=False
+                )
 
-            linha_total = pd.DataFrame({
-                "Ocorrencias": ["Total"],
-                "Quantidade": [total_ocorrencias],
-                "Percentual (%)": [100.0]
-            })
+                # -----------------------------------
+                # LINHA TOTAL
+                # -----------------------------------
 
-            df_ocorrencias = pd.concat(
-                [df_ocorrencias, linha_total],
-                ignore_index=True
-            )
+                linha_total = pd.DataFrame({
+                    "Ocorrencias": ["Total"],
+                    "Quantidade": [total_ocorrencias],
+                    "Percentual (%)": [100.0]
+                })
 
-            # -----------------------------------
-            # FORMATAÇÃO
-            # -----------------------------------
+                df_ocorrencias = pd.concat(
+                    [df_ocorrencias, linha_total],
+                    ignore_index=True
+                )
 
-            df_ocorrencias["Percentual (%)"] = df_ocorrencias["Percentual (%)"].round(2)
+                # -----------------------------------
+                # FORMATAÇÃO
+                # -----------------------------------
 
-            # -----------------------------------
-            # EXIBIR
-            # -----------------------------------
+                df_ocorrencias["Percentual (%)"] = df_ocorrencias["Percentual (%)"].round(2)
 
-            st.dataframe(
-                df_ocorrencias, 
-                use_container_width=True,
-                hide_index=True
-            )
+                # -----------------------------------
+                # EXIBIR
+                # -----------------------------------
+
+                st.subheader("Ocorrências")
+
+                st.dataframe(
+                    df_ocorrencias, 
+                    use_container_width=True,
+                    hide_index=True
+                )
 
             # -----------------------------------
             # FILTRAR ATRASADOS
