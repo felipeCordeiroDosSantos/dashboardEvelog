@@ -425,14 +425,14 @@ if base_unificada is not None and not base_unificada.empty:
 if base_unificada is not None:
 
     df = base_unificada.copy()
-    
-    tipo_pedido = st.segmented_control(
-        "Tipo de pedidos",
-        ["Pedidos Em Aberto", "Pedidos Entregues", "Pedidos Não Entregues"]
-    )
 
-    if tipo_pedido == "Pedidos Em Aberto":
+    tab1, tab2, tab3 = st.tabs([
+        "Pedidos Em Aberto",
+        "Pedidos Entregues",
+        "Pedidos Não Entregues"
+    ])
 
+    with tab1:
         # -----------------------------------
         # BASE INICIAL
         # -----------------------------------
@@ -449,7 +449,7 @@ if base_unificada is not None:
 
         else:
 
-            st.subheader("Pedidos Em Aberto")
+            st.header("Pedidos Em Aberto")
 
             # -----------------------------------
             # TOPO (RADIO + MÉTRICA)
@@ -916,7 +916,7 @@ if base_unificada is not None:
 
                 botao_exportar_excel(df_base, nome_arquivo = f"base_em_aberto_{sufixo_arquivo}.xlsx", usar_sidebar=False)
 
-    elif tipo_pedido == "Pedidos Entregues":
+    with tab2:
 
         from datetime import timedelta
 
@@ -936,7 +936,7 @@ if base_unificada is not None:
 
         else:
 
-            st.subheader("Performance OTD")
+            st.header("Performance OTD")
 
             # -----------------------------------
             # TRATAMENTO DE DATA (🔥 CORREÇÃO PRINCIPAL)
@@ -1227,21 +1227,23 @@ if base_unificada is not None:
             col1, col2 = st.columns(2)
 
             with col1:
+                st.markdown("##### OTD Original")
+
                 fig1 = px.pie(
                     df_otd,
                     names="Status",
                     values="Quantidade",
-                    title="OTD Original",
                     hole=0.4
                 )
                 st.plotly_chart(fig1, use_container_width=True)
 
             with col2:
+                st.markdown("##### OTD Justificado")
+
                 fig2 = px.pie(
                     df_otd_just,
                     names="Status",
                     values="Quantidade",
-                    title="OTD Justificado",
                     hole=0.4
                 )
                 st.plotly_chart(fig2, use_container_width=True)
@@ -1442,8 +1444,7 @@ if base_unificada is not None:
             total_atrasados = df_dist["Pedidos"].sum()
 
             st.subheader("Distribuição de atrasos (dias)")
-
-            st.markdown(f"**Total de pedidos em atraso: {total_atrasados:,}**")
+            st.caption(f"Total de pedidos em atraso: {total_atrasados}")
 
             # -----------------------------------
             # ORDENAR POR DIAS (CORRETO)
@@ -1766,7 +1767,7 @@ if base_unificada is not None:
                 usar_justificados = st.checkbox("Atrasos justificados", value=True)
 
             with col6:
-                usar_baixa_indevida = st.checkbox("Baixas indevidas (1 dia de atraso e sem ocorrência)", value=False)
+                usar_baixa_indevida = st.checkbox("Baixas indevidas", value=False)
 
             with col7:
                 dias_extra = st.number_input("Dias extras", min_value=0, max_value=10, value=0)
@@ -1961,7 +1962,7 @@ if base_unificada is not None:
                                     use_container_width=True
                                 )
 
-    elif tipo_pedido == "Pedidos Não Entregues":
+    with tab3:
 
         df_encerrados = df[
             (df["Prazo"].isna()) |
@@ -1988,7 +1989,7 @@ if base_unificada is not None:
             # opções disponíveis
             status_opcoes = sorted(df_plot["Status_plot"].dropna().unique())
 
-            st.subheader("Pedidos Não Entregues")
+            st.header("Pedidos Não Entregues")
 
             col_form, _, col_metric = st.columns([1, 2, 1])
 
@@ -2043,6 +2044,9 @@ if base_unificada is not None:
             chart = bars + text
 
             st.altair_chart(chart, use_container_width=True)
+
+            st.subheader("Pedidos filtrados")
+            st.caption(f"Total: {len(df_filtrado)}")
 
             st.dataframe(
                 df_filtrado,
