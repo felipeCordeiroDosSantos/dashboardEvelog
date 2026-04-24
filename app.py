@@ -375,6 +375,8 @@ botao_exportar_excel(base_unificada, nome_arquivo="base_completa.xlsx")
 # FILTRO GLOBAL - DATA DE EMISSÃO
 # -------------------------------------------
 
+
+
 if base_unificada is not None and not base_unificada.empty:
 
     base_unificada["Dt Emissao"] = base_unificada["Dt Emissao"].astype(str).str.strip()
@@ -394,6 +396,16 @@ if base_unificada is not None and not base_unificada.empty:
     col_filtro, _, col_metric1 = st.columns([1, 2, 1])
 
     with col_filtro:
+        # Identificador da base (pode ser quantidade + datas)
+        hash_base = (len(base_unificada), min_emissao, max_emissao)
+
+        if "hash_base" not in st.session_state:
+            st.session_state.hash_base = None
+
+        if st.session_state.hash_base != hash_base:
+            st.session_state.filtro_global_emissao = (min_emissao, max_emissao)
+            st.session_state.hash_base = hash_base
+
         data_emissao = st.date_input(
             "📅 Período de emissão dos pedidos",
             value=(min_emissao, max_emissao),
