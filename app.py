@@ -375,8 +375,6 @@ botao_exportar_excel(base_unificada, nome_arquivo="base_completa.xlsx")
 # FILTRO GLOBAL - DATA DE EMISSÃO
 # -------------------------------------------
 
-
-
 if base_unificada is not None and not base_unificada.empty:
 
     base_unificada["Dt Emissao"] = base_unificada["Dt Emissao"].astype(str).str.strip()
