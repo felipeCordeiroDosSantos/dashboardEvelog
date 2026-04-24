@@ -985,6 +985,12 @@ if base_unificada is not None:
                     horizontal=True
                 )
 
+            with col4:
+                st.metric(
+                    label="Total de pedidos entregues",
+                    value=len(df_perf)
+                )
+
             # -----------------------------------
             # FILTRO DE DATA (🔥 CORRETO)
             # -----------------------------------
@@ -1000,12 +1006,6 @@ if base_unificada is not None:
                     (df_perf["Dt Evento"] >= pd.to_datetime(data_ini)) &
                     (df_perf["Dt Evento"] < pd.to_datetime(data_fim))
                 ]
-            
-            with col4:
-                st.metric(
-                    label="Total de pedidos",
-                    value=len(df_perf)
-                )
 
             # -----------------------------------
             # AGRUPAMENTO
