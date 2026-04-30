@@ -325,7 +325,7 @@ if uploaded_files:
             cliente = df["Cliente"].iloc[0]
 
             st.sidebar.write(
-                f"📄 **{file.name}** carregado → {mes_ref} | 🏷️ {cliente}"
+                f"**{file.name}** carregado → {mes_ref} | {cliente}"
             )
 
     base_unificada = pd.concat(dfs, ignore_index=True)
@@ -354,28 +354,109 @@ mapa_regiao = {
     "PR": "Sul", "RS": "Sul", "SC": "Sul"
 }
 
-with st.sidebar:
-
-    st.markdown("### 📦 Base unificada")
-
-    if base_unificada is not None and not base_unificada.empty:
-        st.metric(
-            label="Total de pedidos",
-            value=len(base_unificada)
-        )
-    else:
-        st.metric(
-            label="Total de pedidos",
-            value="—"
-        )
-
-botao_exportar_excel(base_unificada, nome_arquivo="base_completa.xlsx")
-
-# -------------------------------------------
-# FILTRO GLOBAL - DATA DE EMISSÃO
-# -------------------------------------------
-
 if base_unificada is not None and not base_unificada.empty:
+
+    df = base_unificada.copy()
+    df_perf = base_unificada.copy()
+
+    df_abertos = df[
+        (~df["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])) &
+        (df["Prazo"].notna()) &
+        (df["Prazo"].astype(str).str.strip() != "")
+    ].copy()
+
+    df_base_atrasados = df_abertos[
+        df_abertos["Prazo"].str.contains("ATRASADO", na=False)
+    ].copy()
+
+    df_base_noprazo = df_abertos[
+        df_abertos["Prazo"].str.contains("FALTAM", na=False)
+    ].copy()
+
+    df_perf = df_perf[
+        df_perf["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
+    ].copy()
+
+    df_encerrados = df[
+        (df["Prazo"].isna()) |
+        (df["Prazo"].astype(str).str.strip() == "")
+    ].copy()
+
+    with st.sidebar:
+
+        total = len(base_unificada)
+        entregues = len(df_perf)
+        abertos = len(df_abertos)
+        nao_entregues = len(df_encerrados)
+        atrasados = len(df_base_atrasados)
+        no_prazo = len(df_base_noprazo)
+
+        pct_entregues = entregues / total if total > 0 else 0
+        pct_abertos = abertos / total if total > 0 else 0
+        pct_nao_entregues = nao_entregues / total if total > 0 else 0
+        pct_atrasados = atrasados / abertos if abertos > 0 else 0
+        pct_no_prazo = no_prazo / abertos if abertos > 0 else 0
+
+        st.subheader("Resumo")
+
+        st.markdown(
+f"""<style>
+.tabela {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}}
+.tabela td {{
+    padding: 4px 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}}
+.tree {{
+    font-family: monospace;
+    white-space: pre;
+}}
+.bold {{ font-weight: 600; }}
+</style>
+
+<table class="tabela">
+<tr>
+    <td class="tree bold">Total do Período</td>
+    <td>{total}</td>
+    <td>100.00%</td>
+</tr>
+
+<tr>
+    <td class="tree">├─ Em aberto</td>
+    <td>{abertos}</td>
+    <td>{pct_abertos:.2%}</td>
+</tr>
+
+<tr>
+    <td class="tree">│  ├─ Em atraso</td>
+    <td>{atrasados}</td>
+    <td>{pct_atrasados:.2%}</td>
+</tr>
+
+<tr>
+    <td class="tree">│  └─ No prazo</td>
+    <td>{no_prazo}</td>
+    <td>{pct_no_prazo:.2%}</td>
+</tr>
+
+<tr>
+    <td class="tree">├─ Entregues</td>
+    <td>{entregues}</td>
+    <td>{pct_entregues:.2%}</td>
+</tr>
+
+<tr>
+    <td class="tree">└─ Não entregues</td>
+    <td>{nao_entregues}</td>
+    <td>{pct_nao_entregues:.2%}</td>
+</tr>
+</table>
+""", unsafe_allow_html=True)
+
+    botao_exportar_excel(base_unificada, nome_arquivo="base_completa.xlsx")
 
     base_unificada["Dt Emissao"] = base_unificada["Dt Emissao"].astype(str).str.strip()
 
@@ -391,7 +472,7 @@ if base_unificada is not None and not base_unificada.empty:
     max_emissao = df_datas_validas["Dt Emissao"].max().date()
 
     # 🔲 Criação das colunas
-    col_filtro, _, col_metric1 = st.columns([1, 2, 1])
+    col_filtro, _, col_metric1 = st.columns([1, 2, 1,])
 
     with col_filtro:
         # Identificador da base (pode ser quantidade + datas)
@@ -424,17 +505,15 @@ if base_unificada is not None and not base_unificada.empty:
     qtd_pedidos = len(base_unificada)
 
     with col_metric1:
+
         st.metric(
             label="Pedidos no período",
             value=f"{qtd_pedidos:,}".replace(",", ".")
         )
-
 # -------------------------------------------
 # DASHBOARD
 # -------------------------------------------
 if base_unificada is not None:
-
-    df = base_unificada.copy()
 
     tab1, tab2, tab3 = st.tabs([
         "Pedidos Em Aberto",
@@ -443,15 +522,6 @@ if base_unificada is not None:
     ])
 
     with tab1:
-        # -----------------------------------
-        # BASE INICIAL
-        # -----------------------------------
-
-        df_abertos = df[
-            (~df["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])) &
-            (df["Prazo"].notna()) &
-            (df["Prazo"].astype(str).str.strip() != "")
-        ].copy()
 
         if df_abertos.empty:
 
@@ -460,6 +530,8 @@ if base_unificada is not None:
         else:
 
             st.header("Pedidos Em Aberto")
+            st.caption(f"Total de pedidos em aberto: {len(df_abertos)}")
+
 
             # -----------------------------------
             # TOPO (RADIO + MÉTRICA)
@@ -500,10 +572,6 @@ if base_unificada is not None:
                 .str.extract(r'(\d+)', expand=False)
                 .astype(float)
             )
-
-            # -----------------------------------
-            # NOVO CAMPO - DIAS SEM MOVIMENTAÇÃO
-            # -----------------------------------
 
             hoje = pd.Timestamp.now().normalize()
 
@@ -766,7 +834,6 @@ if base_unificada is not None:
 
             if not grafico.empty:
 
-                # DIAS
                 if tipo == "Em atraso":
 
                     tituloDias = "Distribuição de Pedidos em Atraso por Dias de Atraso"
@@ -789,7 +856,7 @@ if base_unificada is not None:
                     eixo_x_titulo = "Dias até o Vencimento"
 
                     sufixo_arquivo = "no_prazo"
-
+                
                 st.subheader(tituloDias)
 
                 base_chart = alt.Chart(grafico).encode(
@@ -916,7 +983,7 @@ if base_unificada is not None:
             if not  df_base.empty:
                 st.subheader(tituloPedidosFiltrados)
 
-                st.write(f"Total: {len(df_base)}")
+                st.caption(f"Total: {len(df_base)}")
 
                 st.dataframe(
                     df_base,
@@ -930,16 +997,6 @@ if base_unificada is not None:
 
         from datetime import timedelta
 
-        df_perf = base_unificada.copy()
-
-        # -----------------------------------
-        # SOMENTE ENTREGUES
-        # -----------------------------------
-
-        df_perf = df_perf[
-            df_perf["Prazo"].isin(["NO PRAZO", "FORA DO PRAZO"])
-        ].copy()
-
         if df_perf.empty:
 
             st.info("Não há pedidos entregues na base.")
@@ -947,6 +1004,7 @@ if base_unificada is not None:
         else:
 
             st.header("Performance OTD")
+            st.caption(f"Total de pedidos entregues: {len(df_perf)}")
 
             # -----------------------------------
             # TRATAMENTO DE DATA (🔥 CORREÇÃO PRINCIPAL)
@@ -995,12 +1053,6 @@ if base_unificada is not None:
                     horizontal=True
                 )
 
-            with col4:
-                st.metric(
-                    label="Total de pedidos entregues",
-                    value=len(df_perf)
-                )
-
             # -----------------------------------
             # FILTRO DE DATA (🔥 CORRETO)
             # -----------------------------------
@@ -1016,6 +1068,12 @@ if base_unificada is not None:
                     (df_perf["Dt Evento"] >= pd.to_datetime(data_ini)) &
                     (df_perf["Dt Evento"] < pd.to_datetime(data_fim))
                 ]
+            
+            with col4:
+                st.metric(
+                    label="Total de pedidos entregues",
+                    value=len(df_perf)
+                )
 
             # -----------------------------------
             # AGRUPAMENTO
@@ -1608,7 +1666,7 @@ if base_unificada is not None:
 
             if df_atraso.empty:
 
-                st.info("Não há unidades ofensoras.")
+                st.info("Não há unidades ofensoras base.")
                 
             else:
 
@@ -1984,14 +2042,9 @@ if base_unificada is not None:
 
     with tab3:
 
-        df_encerrados = df[
-            (df["Prazo"].isna()) |
-            (df["Prazo"].astype(str).str.strip() == "")
-        ].copy()
-
         if df_encerrados.empty:
 
-            st.info("Não há pedidos não entregues.")
+            st.info("Não há pedidos não entregues na base.")
 
         else:
 
@@ -2010,6 +2063,7 @@ if base_unificada is not None:
             status_opcoes = sorted(df_plot["Status_plot"].dropna().unique())
 
             st.header("Pedidos Não Entregues")
+            st.caption(f"Total de pedidos não entregues: {len(df_encerrados)}")
 
             col_form, _, col_metric = st.columns([1, 2, 1])
 
