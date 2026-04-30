@@ -472,7 +472,7 @@ f"""<style>
     max_emissao = df_datas_validas["Dt Emissao"].max().date()
 
     # 🔲 Criação das colunas
-    col_filtro, _, col_metric1 = st.columns([1, 2, 1,])
+    col_filtro, _, col_metric1 = st.columns([1, 2, 1])
 
     with col_filtro:
         # Identificador da base (pode ser quantidade + datas)
